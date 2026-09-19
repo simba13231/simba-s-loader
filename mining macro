@@ -1,0 +1,380 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+#UseHook
+#MaxThreadsPerHotkey 1
+DllCall("SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
+CoordMode "Pixel", "Screen"
+CoordMode "Mouse", "Screen"
+SetMouseDelay 0
+SetDefaultMouseSpeed 1
+
+global Config := {
+	colors: [0xFF0020, 0x8EE6FF, 0x1EFFFF],
+	colorVariation: 0,
+	scanLeft: 375,
+	scanTop: 222,
+	scanRight: 1750,
+	scanBottom: 860,
+	excludeLeft: 800,
+	excludeTop: 300,
+	excludeRight: 1125,
+	excludeBottom: 660,
+	pollMs: 250,
+	holdMs: 30000,
+	fallbackX: 950,
+	fallbackY: 550,
+	status: "Stopped",
+	running: false,
+	holding: false,
+	awaitingFallback: false,
+	cycleStarted: 0,
+	lastColor: "None",
+	lastPoint: "None"
+}
+global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
+global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
+global SavedWebhookUrl := IniRead(SettingsFile, "Webhook", "Url", "")
+
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro")
+GuiMain.SetFont("s10", "Segoe UI")
+GuiMain.AddText("w360 Section", "Roblox Mining Macro")
+GuiMain.AddText("xm y+10 w90", "Roblox window:")
+global WindowText := GuiMain.AddText("x+5 yp w265", "Not checked")
+GuiMain.AddText("xm y+10 w90", "Status:")
+global StatusText := GuiMain.AddText("x+5 yp w265", "Stopped")
+GuiMain.AddText("xm y+10 w90", "Detection:")
+global DetectionText := GuiMain.AddText("x+5 yp w265", "No scan yet")
+GuiMain.AddText("xm y+10 w90", "Countdown:")
+global CountdownText := GuiMain.AddText("x+5 yp w265", "Idle")
+
+GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
+	GuiMain.AddText("xm y+14 w360", "Webhook notifications")
+	GuiMain.AddText("xm y+8 w75", "User ID")
+	global UserIdEdit := GuiMain.AddEdit("x+5 yp-3 w280", SavedUserId)
+	GuiMain.AddText("xm y+8 w75", "Webhook")
+	global WebhookEdit := GuiMain.AddEdit("x+5 yp-3 w280", SavedWebhookUrl)
+	global TestWebhookButton := GuiMain.AddButton("xm y+8 w115", "Test webhook")
+	TestWebhookButton.OnEvent("Click", TestWebhook)
+
+global StartButton := GuiMain.AddButton("xm y+15 w115", "Start")
+StartButton.OnEvent("Click", ToggleMacro)
+global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "Stop")
+StopButton.OnEvent("Click", StopMacro)
+GuiMain.AddText("xm y+12 w360 c666666", "F6 Start/stop    F7 Stop and release mouse")
+GuiMain.AddText("xm y+8 w360 c666666", "Colors: FF0020  8EE6FF  1EFFFF")
+GuiMain.AddText("xm y+8 w360 c666666", "Scan box: (375, 222) to (1750, 860)")
+GuiMain.AddText("xm y+8 w360 c666666", "Ignored hat box: (800, 300) to (1125, 660)")
+GuiMain.AddText("xm y+8 w360 c666666", "Scan interval: 250 ms")
+GuiMain.AddText("xm y+10 w360", "Debug log")
+global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
+GuiMain.OnEvent("Close", HandleClose)
+GuiMain.Show()
+
+$F6:: {
+	ToggleMacro()
+}
+$F7:: {
+	EmergencyStop()
+}
+
+ToggleMacro(*) {
+	global Config
+	if Config.running {
+		StopMacro()
+	} else {
+		StartMacro()
+	}
+}
+
+StartMacro() {
+	global Config, StartButton, StopButton
+	SaveSettings()
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
+		UpdateStatus("Roblox is not running")
+		AddDebug("Start cancelled: RobloxPlayerBeta.exe was not found.")
+		return
+	}
+
+	Config.running := true
+	Config.status := "Starting"
+	StartButton.Enabled := false
+	StopButton.Enabled := true
+	UpdateStatus("Focusing Roblox")
+	AddDebug("Starting macro at fixed fallback point (950, 550).")
+	WinActivate("ahk_exe RobloxPlayerBeta.exe")
+	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2) {
+		StopMacro()
+		UpdateStatus("Could not focus Roblox")
+		return
+	}
+
+	; Reset the camera view once when a run begins.
+	Send("{WheelUp 30}")
+	Sleep 150
+	Send("{WheelDown 7}")
+	UpdateStatus("Scanning")
+	SetTimer ScanAndAct, Config.pollMs
+	SetTimer UpdateCountdown, 250
+	ScanAndAct()
+}
+
+StopMacro(*) {
+	global Config, StartButton, StopButton, CountdownText
+	SetTimer ScanAndAct, 0
+	SetTimer UpdateCountdown, 0
+	Config.running := false
+	Config.awaitingFallback := false
+	Config.status := "Stopped"
+	if Config.holding {
+		Click "Up"
+		Config.holding := false
+	}
+	StartButton.Enabled := true
+	StopButton.Enabled := false
+	UpdateStatus("Stopped")
+	CountdownText.Text := "Idle"
+	AddDebug("Macro stopped and mouse released.")
+}
+
+EmergencyStop(*) {
+	global Config, StartButton, StopButton, CountdownText
+	SetTimer ScanAndAct, 0
+	SetTimer UpdateCountdown, 0
+	Config.running := false
+	Config.awaitingFallback := false
+	if Config.holding {
+		Click "Up"
+		Config.holding := false
+	}
+	StartButton.Enabled := true
+	StopButton.Enabled := false
+	CountdownText.Text := "Idle"
+	UpdateStatus("Stopped")
+	AddDebug("Emergency stop: timers cancelled and mouse released.")
+}
+
+ScanAndAct() {
+	global Config, DetectionText
+	if !Config.running
+		return
+	if !WinActive("ahk_exe RobloxPlayerBeta.exe") {
+		StopMacro()
+		UpdateStatus("Stopped - Roblox lost focus")
+		return
+	}
+
+	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
+	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
+	if scanRight < Config.scanLeft || scanBottom < Config.scanTop {
+		AddDebug("Scan box is outside the current screen size.")
+		StopMacro()
+		return
+	}
+
+	foundColor := ""
+	foundX := 0
+	foundY := 0
+	for index, color in Config.colors {
+		try {
+			if FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+				foundColor := Format("{:06X}", color)
+				break
+			}
+		} catch Error as err {
+			AddDebug("Pixel scan error: " err.Message)
+			return
+		}
+	}
+
+	if foundColor != "" {
+		DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
+		Config.lastColor := foundColor
+		Config.lastPoint := foundX ", " foundY
+		wasHolding := Config.holding
+		if wasHolding {
+			Click "Up"
+			Config.holding := false
+		}
+		Config.awaitingFallback := false
+		UpdateStatus("Color found - clicking target")
+		if !wasHolding
+			SendWebhook("Color #" foundColor " detected at (" foundX ", " foundY ").")
+		AddDebug("Moving to exact target pixel (" foundX ", " foundY ").")
+		DllCall("SetCursorPos", "int", foundX, "int", foundY)
+		Sleep 100
+		MouseGetPos &actualX, &actualY
+		AddDebug("Cursor position after move: (" actualX ", " actualY ").")
+		JitterClick(foundX, foundY, "down")
+		AddDebug("Holding target pixel for 500 ms.")
+		Sleep 500
+		JitterClick(foundX, foundY, "up")
+		AddDebug("Target pixel hold completed at (" foundX ", " foundY ").")
+		MoveRandomOffset()
+		Config.awaitingFallback := true
+		AddDebug("Waiting 500 ms to confirm whether the color remains.")
+		Sleep 500
+		if Config.running
+			ScanAndAct()
+		return
+	}
+
+	DetectionText.Text := "No target color found"
+	if Config.holding {
+		Click "Up"
+		Config.holding := false
+		AddDebug("Color lost; returning to fallback pixel (950, 550).")
+	}
+	DllCall("SetCursorPos", "int", Config.fallbackX, "int", Config.fallbackY)
+	if Config.awaitingFallback {
+		Config.awaitingFallback := false
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		Config.holding := true
+		Config.cycleStarted := A_TickCount
+		AddDebug("No color found; fallback hold started.")
+	}
+	UpdateStatus("Scanning - fallback")
+}
+
+FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+	global Config
+	variation := Config.colorVariation
+
+	; Search the four regions surrounding the ignored hat rectangle.
+	if PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, Config.excludeLeft - 1, scanBottom, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeRight + 1, Config.scanTop, scanRight, scanBottom, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.scanTop, Config.excludeRight, Config.excludeTop - 1, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.excludeBottom + 1, Config.excludeRight, scanBottom, color, variation)
+		return true
+	return false
+}
+
+MoveRandomOffset() {
+	MouseGetPos &currentX, &currentY
+	direction := Random(1, 4)
+	if direction = 1
+		JitterClick(currentX, currentY - 50, "move")
+	else if direction = 2
+		JitterClick(currentX, currentY + 50, "move")
+	else if direction = 3
+		JitterClick(currentX - 50, currentY, "move")
+	else
+		JitterClick(currentX + 50, currentY, "move")
+}
+
+UpdateCountdown() {
+	global Config, CountdownText
+	if !Config.running || !Config.holding {
+		CountdownText.Text := "Idle"
+		return
+	}
+	if !WinActive("ahk_exe RobloxPlayerBeta.exe") {
+		StopMacro()
+		UpdateStatus("Stopped - Roblox lost focus")
+		return
+	}
+
+	elapsed := A_TickCount - Config.cycleStarted
+	remaining := Config.holdMs - elapsed
+	if remaining <= 0 {
+		JitterClick(Config.fallbackX, Config.fallbackY, "up")
+		Config.holding := false
+		CountdownText.Text := "Finishing..."
+		UpdateStatus("Finishing actions")
+		AddDebug("30 seconds elapsed; performing end-of-cycle clicks.")
+		JitterClick(960, 100)
+		Sleep 1000
+		JitterClick(190, 500)
+		Sleep 500
+		JitterClick(190, 500)
+		UpdateStatus("Scanning")
+		ScanAndAct()
+		return
+	}
+
+	CountdownText.Text := Format("{} seconds remaining", Ceil(remaining / 1000))
+}
+
+TestWebhook(*) {
+	SaveSettings()
+	if SendWebhook("Webhook test from Roblox Mining Macro.")
+		AddDebug("Webhook test sent successfully.")
+}
+
+HandleClose(*) {
+	SaveSettings()
+	ExitApp()
+}
+
+SaveSettings() {
+	global SettingsFile, UserIdEdit, WebhookEdit
+	IniWrite(UserIdEdit.Value, SettingsFile, "Webhook", "UserId")
+	IniWrite(WebhookEdit.Value, SettingsFile, "Webhook", "Url")
+}
+
+SendWebhook(message) {
+	global WebhookEdit, UserIdEdit
+	webhookUrl := Trim(WebhookEdit.Value)
+	if webhookUrl = ""
+		return false
+
+	mention := Trim(UserIdEdit.Value)
+	if mention != ""
+		message := "<@" mention "> " message
+
+	payload := "{" . Chr(34) . "content" . Chr(34) . ":" . Chr(34) . JsonEscape(message) . Chr(34) . "}"
+	try {
+		http := ComObject("WinHttp.WinHttpRequest.5.1")
+		http.Open("POST", webhookUrl, false)
+		http.SetTimeouts(3000, 3000, 3000, 3000)
+		http.SetRequestHeader("Content-Type", "application/json")
+		http.Send(payload)
+		return http.Status >= 200 && http.Status < 300
+	} catch Error as err {
+		AddDebug("Webhook error: " err.Message)
+		return false
+	}
+}
+
+JsonEscape(value) {
+	value := StrReplace(value, Chr(92), Chr(92) Chr(92))
+	value := StrReplace(value, Chr(34), Chr(92) Chr(34))
+	value := StrReplace(value, "`r", "\r")
+	return StrReplace(value, "`n", "\n")
+}
+
+JitterClick(x, y, action := "click") {
+	DllCall("SetCursorPos", "int", x, "int", y)
+	Sleep 30
+	MouseMove 4, 0, 2, "R"
+	MouseMove -4, 0, 2, "R"
+	Sleep 10
+	if action = "move" {
+		return
+	} else if action = "down" {
+		Click "Down"
+	} else if action = "up" {
+		Click "Up"
+	} else {
+		Click "Down"
+		Sleep 20
+		Click "Up"
+		Sleep 30
+	}
+}
+
+UpdateStatus(message) {
+	global Config, StatusText, WindowText
+	Config.status := message
+	StatusText.Text := message
+	WindowText.Text := WinActive("ahk_exe RobloxPlayerBeta.exe") ? "Roblox active" : "Roblox inactive"
+}
+
+AddDebug(message) {
+	global DebugEdit
+	stamp := FormatTime(, "HH:mm:ss")
+	DebugEdit.Value := DebugEdit.Value stamp "  " message "`r`n"
+	SendMessage 0x115, 7, 0, DebugEdit
+}
