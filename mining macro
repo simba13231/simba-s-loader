@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 #UseHook
 #MaxThreadsPerHotkey 1
@@ -118,7 +118,7 @@ StartMacro() {
 	Config.cycleStarted := A_TickCount
 	Config.fallbackActive := true
 	Config.holding := true
-	JitterClick(Config.fallbackX, Config.fallbackY)
+	JitterClick(Config.fallbackX, Config.fallbackY, "down")
 	SetTimer FallbackClick, 500
 	UpdateStatus("Scanning")
 	SetTimer ScanAndAct, Config.pollMs
@@ -243,7 +243,7 @@ ScanAndAct() {
 		Config.awaitingFallback := false
 		Config.fallbackActive := true
 		Config.holding := true
-		JitterClick(Config.fallbackX, Config.fallbackY)
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
 		SetTimer FallbackClick, 250
 		AddDebug("No color found; fallback hold started.")
 	}
@@ -254,7 +254,8 @@ FallbackClick() {
 	global Config
 	if !Config.running || !Config.fallbackActive || !WinActive("ahk_exe RobloxPlayerBeta.exe")
 		return
-	JitterClick(Config.fallbackX, Config.fallbackY)
+	MouseMove 2, 0, 1, "R"
+	MouseMove -2, 0, 1, "R"
 }
 
 FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
@@ -318,7 +319,7 @@ UpdateCountdown() {
 		Config.cycleActive := true
 		Config.fallbackActive := true
 		Config.holding := true
-		JitterClick(Config.fallbackX, Config.fallbackY)
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
 		SetTimer FallbackClick, 500
 		ScanAndAct()
 		return
