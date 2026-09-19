@@ -219,8 +219,8 @@ ScanAndAct() {
 		MouseGetPos &actualX, &actualY
 		AddDebug("Cursor position after move: (" actualX ", " actualY ").")
 		JitterClick(foundX, foundY, "down")
-		AddDebug("Holding target pixel for 500 ms.")
-		Sleep 500
+		AddDebug("Holding target pixel for 1000 ms.")
+		Sleep 1000
 		JitterClick(foundX, foundY, "up")
 		AddDebug("Target pixel hold completed at (" foundX ", " foundY ").")
 		MoveRandomOffset()
