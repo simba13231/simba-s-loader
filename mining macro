@@ -278,13 +278,13 @@ MoveRandomOffset() {
 	MouseGetPos &currentX, &currentY
 	direction := Random(1, 4)
 	if direction = 1
-		JitterClick(currentX, currentY - 50, "move")
+		JitterClick(currentX, currentY - 50)
 	else if direction = 2
-		JitterClick(currentX, currentY + 50, "move")
+		JitterClick(currentX, currentY + 50)
 	else if direction = 3
-		JitterClick(currentX - 50, currentY, "move")
+		JitterClick(currentX - 50, currentY)
 	else
-		JitterClick(currentX + 50, currentY, "move")
+		JitterClick(currentX + 50, currentY)
 }
 
 UpdateCountdown() {
