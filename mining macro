@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 #UseHook
 #MaxThreadsPerHotkey 1
@@ -26,6 +26,8 @@ global Config := {
 	status: "Stopped",
 	running: false,
 	holding: false,
+	fallbackActive: false,
+	cycleActive: false,
 	awaitingFallback: false,
 	cycleStarted: 0,
 	lastColor: "None",
@@ -112,6 +114,12 @@ StartMacro() {
 	Send("{WheelUp 30}")
 	Sleep 150
 	Send("{WheelDown 7}")
+	Config.cycleActive := true
+	Config.cycleStarted := A_TickCount
+	Config.fallbackActive := true
+	Config.holding := true
+	JitterClick(Config.fallbackX, Config.fallbackY)
+	SetTimer FallbackClick, 500
 	UpdateStatus("Scanning")
 	SetTimer ScanAndAct, Config.pollMs
 	SetTimer UpdateCountdown, 250
@@ -122,7 +130,9 @@ StopMacro(*) {
 	global Config, StartButton, StopButton, CountdownText
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
+	SetTimer FallbackClick, 0
 	Config.running := false
+	Config.cycleActive := false
 	Config.awaitingFallback := false
 	Config.status := "Stopped"
 	if Config.holding {
@@ -140,7 +150,9 @@ EmergencyStop(*) {
 	global Config, StartButton, StopButton, CountdownText
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
+	SetTimer FallbackClick, 0
 	Config.running := false
+	Config.cycleActive := false
 	Config.awaitingFallback := false
 	if Config.holding {
 		Click "Up"
@@ -187,6 +199,8 @@ ScanAndAct() {
 	}
 
 	if foundColor != "" {
+		SetTimer FallbackClick, 0
+		Config.fallbackActive := false
 		DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
 		Config.lastColor := foundColor
 		Config.lastPoint := foundX ", " foundY
@@ -219,7 +233,7 @@ ScanAndAct() {
 	}
 
 	DetectionText.Text := "No target color found"
-	if Config.holding {
+	if Config.holding && !Config.fallbackActive {
 		Click "Up"
 		Config.holding := false
 		AddDebug("Color lost; returning to fallback pixel (950, 550).")
@@ -227,12 +241,20 @@ ScanAndAct() {
 	DllCall("SetCursorPos", "int", Config.fallbackX, "int", Config.fallbackY)
 	if Config.awaitingFallback {
 		Config.awaitingFallback := false
-		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		Config.fallbackActive := true
 		Config.holding := true
-		Config.cycleStarted := A_TickCount
+		JitterClick(Config.fallbackX, Config.fallbackY)
+		SetTimer FallbackClick, 500
 		AddDebug("No color found; fallback hold started.")
 	}
 	UpdateStatus("Scanning - fallback")
+}
+
+FallbackClick() {
+	global Config
+	if !Config.running || !Config.fallbackActive || !WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return
+	JitterClick(Config.fallbackX, Config.fallbackY)
 }
 
 FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
@@ -266,7 +288,7 @@ MoveRandomOffset() {
 
 UpdateCountdown() {
 	global Config, CountdownText
-	if !Config.running || !Config.holding {
+	if !Config.running || !Config.cycleActive {
 		CountdownText.Text := "Idle"
 		return
 	}
@@ -279,8 +301,10 @@ UpdateCountdown() {
 	elapsed := A_TickCount - Config.cycleStarted
 	remaining := Config.holdMs - elapsed
 	if remaining <= 0 {
-		JitterClick(Config.fallbackX, Config.fallbackY, "up")
+		SetTimer FallbackClick, 0
+		Config.fallbackActive := false
 		Config.holding := false
+		Config.cycleActive := false
 		CountdownText.Text := "Finishing..."
 		UpdateStatus("Finishing actions")
 		AddDebug("30 seconds elapsed; performing end-of-cycle clicks.")
@@ -290,6 +314,12 @@ UpdateCountdown() {
 		Sleep 500
 		JitterClick(190, 500)
 		UpdateStatus("Scanning")
+		Config.cycleStarted := A_TickCount
+		Config.cycleActive := true
+		Config.fallbackActive := true
+		Config.holding := true
+		JitterClick(Config.fallbackX, Config.fallbackY)
+		SetTimer FallbackClick, 500
 		ScanAndAct()
 		return
 	}
