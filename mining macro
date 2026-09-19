@@ -244,7 +244,7 @@ ScanAndAct() {
 		Config.fallbackActive := true
 		Config.holding := true
 		JitterClick(Config.fallbackX, Config.fallbackY)
-		SetTimer FallbackClick, 500
+		SetTimer FallbackClick, 250
 		AddDebug("No color found; fallback hold started.")
 	}
 	UpdateStatus("Scanning - fallback")
