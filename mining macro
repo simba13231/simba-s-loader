@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 #UseHook
 #MaxThreadsPerHotkey 1
@@ -113,7 +113,7 @@ StartMacro() {
 	; Reset the camera view once when a run begins.
 	Send("{WheelUp 30}")
 	Sleep 150
-	Send("{WheelDown 7}")
+	Send("{WheelDown 12}")
 	Config.cycleActive := true
 	Config.cycleStarted := A_TickCount
 	Config.fallbackActive := true
