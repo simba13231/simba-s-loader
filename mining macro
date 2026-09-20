@@ -9,12 +9,20 @@ SetMouseDelay 0
 SetDefaultMouseSpeed 1
 
 global Config := {
-	colors: [0x33FFFF, 0x005EFF, 0xFF0025],
-	colorVariation: 2,
+	colors: [0x008EFF, 0xFF002E],
+	colorVariation: 0,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
 	scanBottom: 860,
+	tpScanLeft: 375,
+	tpScanTop: 222,
+	tpScanRight: 1750,
+	tpScanBottom: 860,
+	fpScanLeft: 350,
+	fpScanTop: 125,
+	fpScanRight: 1905,
+	fpScanBottom: 865,
 	excludeLeft: 800,
 	excludeTop: 300,
 	excludeRight: 1125,
@@ -40,11 +48,34 @@ global Config := {
 	repeatY: 0,
 	recalibrating: false,
 	preRecalKeys: ["1", "2"],
-	preRecalKeyDelayMs: 300
+	preRecalKeyDelayMs: 300,
+	firstPerson: false,
+	camGain: 0.5,
+	aimTolerance: 12,
+	aimMaxSteps: 8,
+	aimStepDelayMs: 40,
+	aimOffsetX: 0,
+	aimOffsetY: 0,
+	lookDownCounts: 2500,
+	lookDownAfterMs: 1000,
+	lookDownPauseMs: 1500,
+	aimPausedUntil: 0,
+	jiggleAmount: 50,
+	jiggleMs: 50,
+	jiggleOffset: 0,
+	jiggling: false,
+	aiming: false,
+	holdColor: "",
+	holdSince: 0,
+	holdLookedDown: false,
+	centerX: 960,
+	centerY: 540,
+	lookedDown: false
 }
 global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
 global SavedWebhookUrl := IniRead(SettingsFile, "Webhook", "Url", "")
+global SavedFirstPerson := IniRead(SettingsFile, "Options", "FirstPerson", "0")
 
 global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro")
 GuiMain.SetFont("s10", "Segoe UI")
@@ -67,18 +98,22 @@ GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
 	global TestWebhookButton := GuiMain.AddButton("xm y+8 w115", "Test webhook")
 	TestWebhookButton.OnEvent("Click", TestWebhook)
 
-global StartButton := GuiMain.AddButton("xm y+15 w115", "Start")
+global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (aims camera, no hat zone)")
+global StartButton := GuiMain.AddButton("xm y+12 w115", "Start")
 StartButton.OnEvent("Click", ToggleMacro)
 global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "Stop")
 StopButton.OnEvent("Click", StopMacro)
 global ReloadButton := GuiMain.AddButton("x+8 yp w115", "Reload")
 ReloadButton.OnEvent("Click", ReloadScript)
 GuiMain.AddText("xm y+12 w360 c666666", "F6 Start/stop    F7 Stop and release mouse")
-GuiMain.AddText("xm y+8 w360 c666666", "Colors: 33FFFF  005EFF  FF0025  (variation 2)")
+GuiMain.AddText("xm y+8 w360 c666666", "Colors: 008EFF  FF002E  (exact match)")
 GuiMain.AddText("xm y+8 w360 c666666", "Scan box: (375, 222) to (1750, 860)")
-GuiMain.AddText("xm y+8 w360 c666666", "Ignored hat box: (800, 300) to (1125, 660)")
+GuiMain.AddText("xm y+8 w360 c666666", "First person scan box: (350, 125) to (1905, 865)")
+GuiMain.AddText("xm y+8 w360 c666666", "Ignored hat box: (800, 300) to (1125, 660) (not in first person)")
 GuiMain.AddText("xm y+8 w360 c666666", "Scan interval: 250 ms")
-GuiMain.AddText("xm y+8 w360 c666666", "Recalibrate after 5 repeat hits within 20 px")
+GuiMain.AddText("xm y+8 w360 c666666", "First person: aims camera at ore, looks down when idle")
+GuiMain.AddText("xm y+8 w360 c666666", "First person: same color for 1 s = look down; ore = jiggle")
+GuiMain.AddText("xm y+8 w360 c666666", "Third person: 5 repeat hits within 20 px = recalibrate")
 GuiMain.AddText("xm y+10 w360", "Debug log")
 global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
 GuiMain.OnEvent("Close", HandleClose)
@@ -111,6 +146,20 @@ StartMacro() {
 
 	Config.running := true
 	Config.status := "Starting"
+	Config.firstPerson := (FirstPersonCheck.Value = 1)
+	if Config.firstPerson {
+		Config.scanLeft := Config.fpScanLeft
+		Config.scanTop := Config.fpScanTop
+		Config.scanRight := Config.fpScanRight
+		Config.scanBottom := Config.fpScanBottom
+	} else {
+		Config.scanLeft := Config.tpScanLeft
+		Config.scanTop := Config.tpScanTop
+		Config.scanRight := Config.tpScanRight
+		Config.scanBottom := Config.tpScanBottom
+	}
+	FirstPersonCheck.Enabled := false
+	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
 	StartButton.Enabled := false
@@ -127,13 +176,24 @@ StartMacro() {
 	; Reset the camera view once when a run begins.
 	Send("{WheelUp 30}")
 	Sleep 150
-	Send("{WheelDown 12}")
 	Config.cycleActive := true
 	Config.cycleStarted := A_TickCount
-	Config.fallbackActive := true
 	Config.holding := true
-	JitterClick(Config.fallbackX, Config.fallbackY, "down")
-	SetTimer FallbackClick, 500
+	if Config.firstPerson {
+		; Fully zoomed in is first person. Look straight down and hold the mouse button.
+		UpdateCenter()
+		Config.holdColor := ""
+		Config.aimPausedUntil := 0
+		LookDown()
+		Config.lookedDown := true
+		Config.fallbackActive := false
+		Click "Down"
+	} else {
+		Send("{WheelDown 12}")
+		Config.fallbackActive := true
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		SetTimer FallbackClick, 500
+	}
 	UpdateStatus("Scanning")
 	SetTimer ScanAndAct, Config.pollMs
 	SetTimer UpdateCountdown, 250
@@ -159,6 +219,8 @@ StopMacro(*) {
 	StopButton.Enabled := false
 	UpdateStatus("Stopped")
 	CountdownText.Text := "Idle"
+	StopJiggle()
+	FirstPersonCheck.Enabled := true
 	AddDebug("Macro stopped and mouse released.")
 }
 
@@ -180,6 +242,8 @@ EmergencyStop(*) {
 	StopButton.Enabled := false
 	CountdownText.Text := "Idle"
 	UpdateStatus("Stopped")
+	StopJiggle()
+	FirstPersonCheck.Enabled := true
 	AddDebug("Emergency stop: timers cancelled and mouse released.")
 }
 
@@ -217,6 +281,10 @@ ScanAndAct() {
 	}
 
 	if foundColor != "" {
+		if Config.firstPerson {
+			AimAtOre(foundColor, foundX, foundY)
+			return
+		}
 		; Same color again at (roughly) the same spot? Too many in a row means we're stuck.
 		if TrackRepeat(foundColor, foundX, foundY) {
 			DetectionText.Text := "Repeat #" foundColor " at (" foundX ", " foundY ")"
@@ -261,6 +329,18 @@ ScanAndAct() {
 	; Nothing found, so the repeat streak is broken.
 	Config.repeatCount := 0
 	DetectionText.Text := "No target color found"
+	if Config.firstPerson {
+		; No ore in view: stop jiggling, keep holding the mouse and look back down.
+		StopJiggle()
+		Config.holdColor := ""
+		if !Config.lookedDown {
+			AddDebug("No ore in view; looking down.")
+			LookDown()
+			Config.lookedDown := true
+		}
+		UpdateStatus("Scanning - looking down")
+		return
+	}
 	if Config.holding && !Config.fallbackActive {
 		Click "Up"
 		Config.holding := false
@@ -307,6 +387,10 @@ FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
 	global Config
 	variation := Config.colorVariation
 
+	; First person: no character in view, so search the whole scan box.
+	if Config.firstPerson
+		return PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, scanRight, scanBottom, color, variation)
+
 	; Search the four regions surrounding the ignored hat rectangle.
 	if PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, Config.excludeLeft - 1, scanBottom, color, variation)
 		return true
@@ -339,6 +423,10 @@ Recalibrate() {
 	if Config.recalibrating
 		return
 	Config.recalibrating := true
+	; First person: stop jiggling and let go of the mouse button before the menu clicks.
+	StopJiggle()
+	if Config.firstPerson && Config.holding
+		Click "Up"
 	SetTimer FallbackClick, 0
 	Config.fallbackActive := false
 	Config.holding := false
@@ -354,6 +442,11 @@ Recalibrate() {
 		if !Config.running
 			return
 	}
+	if Config.firstPerson {
+		; Zoom out of first person so the mouse cursor is free for the menu clicks.
+		Send("{WheelDown 3}")
+		Sleep 400
+	}
 	AddDebug("Performing end-of-cycle clicks.")
 	JitterClick(960, 100)
 	Sleep 1000
@@ -367,10 +460,25 @@ Recalibrate() {
 	UpdateStatus("Scanning")
 	Config.cycleStarted := A_TickCount
 	Config.cycleActive := true
-	Config.fallbackActive := true
 	Config.holding := true
-	JitterClick(Config.fallbackX, Config.fallbackY, "down")
-	SetTimer FallbackClick, 500
+	if Config.firstPerson {
+		; Put the cursor back on the fallback pixel (so the scroll wheel reaches the game and
+		; not the menu), then restart the mining sequence: zoom in, look down, hold the mouse.
+		JitterClick(Config.fallbackX, Config.fallbackY, "move")
+		Sleep 200
+		Send("{WheelUp 30}")
+		Sleep 300
+		Config.holdColor := ""
+		Config.aimPausedUntil := 0
+		LookDown()
+		Config.lookedDown := true
+		Config.fallbackActive := false
+		Click "Down"
+	} else {
+		Config.fallbackActive := true
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		SetTimer FallbackClick, 500
+	}
 	Config.recalibrating := false
 	ScanAndAct()
 }
@@ -427,9 +535,10 @@ HandleClose(*) {
 }
 
 SaveSettings() {
-	global SettingsFile, UserIdEdit, WebhookEdit
+	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck
 	IniWrite(UserIdEdit.Value, SettingsFile, "Webhook", "UserId")
 	IniWrite(WebhookEdit.Value, SettingsFile, "Webhook", "Url")
+	IniWrite(FirstPersonCheck.Value, SettingsFile, "Options", "FirstPerson")
 }
 
 SendWebhook(message) {
@@ -461,6 +570,164 @@ JsonEscape(value) {
 	value := StrReplace(value, Chr(34), Chr(92) Chr(34))
 	value := StrReplace(value, "`r", "\r")
 	return StrReplace(value, "`n", "\n")
+}
+
+; First person: steer the camera until the ore sits on the crosshair (screen center).
+; The mouse button stays held the whole time, so the ore is mined once it lines up.
+AimAtOre(foundColor, foundX, foundY) {
+	global Config, DetectionText
+	Config.lookedDown := false
+	Config.fallbackActive := false
+	DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
+	Config.lastColor := foundColor
+	Config.lastPoint := foundX ", " foundY
+	StartJiggle()
+
+	; Just looked down on purpose: keep mining downward instead of turning back to the ore.
+	if A_TickCount < Config.aimPausedUntil {
+		UpdateStatus("Mining down")
+		return
+	}
+
+	UpdateStatus("Ore found - aiming camera")
+	Config.aiming := true
+	Loop Config.aimMaxSteps {
+		dx := foundX + Config.aimOffsetX - Config.centerX
+		dy := foundY + Config.aimOffsetY - Config.centerY
+		if Abs(dx) <= Config.aimTolerance && Abs(dy) <= Config.aimTolerance
+			break
+		stepX := Round(dx * Config.camGain)
+		stepY := Round(dy * Config.camGain)
+		if stepX = 0 && dx != 0
+			stepX := dx > 0 ? 1 : -1
+		if stepY = 0 && dy != 0
+			stepY := dy > 0 ? 1 : -1
+		MoveCamera(stepX, stepY)
+		Sleep Config.aimStepDelayMs
+		if !Config.running || Config.recalibrating {
+			Config.aiming := false
+			return
+		}
+		if !FindAnyTarget(&foundColor, &foundX, &foundY) {
+			Config.aiming := false
+			AddDebug("Ore left the view while aiming.")
+			return
+		}
+	}
+	Config.aiming := false
+
+	; Same color held for lookDownAfterMs: go for the block below.
+	if ColorHeldLongEnough(foundColor) {
+		AddDebug("Color #" foundColor " held for " Config.lookDownAfterMs " ms; looking down.")
+		LookDown()
+		Config.lookedDown := true
+		Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+	}
+	UpdateStatus("Mining ore")
+}
+
+; Scans every target color and reports the first match.
+FindAnyTarget(&foundColor, &foundX, &foundY) {
+	global Config
+	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
+	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
+	for index, color in Config.colors {
+		try {
+			if FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+				foundColor := Format("{:06X}", color)
+				return true
+			}
+		} catch Error as err {
+			AddDebug("Pixel scan error: " err.Message)
+			return false
+		}
+	}
+	foundColor := ""
+	return false
+}
+
+; True once the same color has been seen nonstop for lookDownAfterMs (once per streak).
+ColorHeldLongEnough(color) {
+	global Config
+	if Config.holdColor != color {
+		Config.holdColor := color
+		Config.holdSince := A_TickCount
+		Config.holdLookedDown := false
+	}
+	if !Config.holdLookedDown && (A_TickCount - Config.holdSince) >= Config.lookDownAfterMs {
+		Config.holdLookedDown := true
+		return true
+	}
+	return false
+}
+
+; First person: while an ore is in view, swing the camera back and forth
+; (jiggleAmount mouse counts every jiggleMs) so the crosshair keeps sweeping over it.
+StartJiggle() {
+	global Config
+	if Config.jiggling
+		return
+	Config.jiggling := true
+	SetTimer JiggleTick, Config.jiggleMs
+}
+
+StopJiggle() {
+	global Config
+	if !Config.jiggling
+		return
+	SetTimer JiggleTick, 0
+	Config.jiggling := false
+	; Put the camera back if we stopped halfway through a swing.
+	if Config.jiggleOffset != 0 {
+		MoveCamera(-Config.jiggleOffset, 0)
+		Config.jiggleOffset := 0
+	}
+}
+
+JiggleTick() {
+	global Config
+	if !Config.running || Config.recalibrating || Config.aiming
+		return
+	if Config.jiggleOffset = 0 {
+		MoveCamera(Config.jiggleAmount, 0)
+		Config.jiggleOffset := Config.jiggleAmount
+	} else {
+		MoveCamera(-Config.jiggleOffset, 0)
+		Config.jiggleOffset := 0
+	}
+}
+
+; Relative mouse movement. With the mouse locked in first person this turns the camera.
+MoveCamera(dx, dy) {
+	while dx != 0 || dy != 0 {
+		stepX := Max(-100, Min(100, dx))
+		stepY := Max(-100, Min(100, dy))
+		DllCall("mouse_event", "UInt", 0x0001, "Int", stepX, "Int", stepY, "UInt", 0, "UPtr", 0)
+		dx -= stepX
+		dy -= stepY
+		if dx != 0 || dy != 0
+			Sleep 5
+	}
+}
+
+; Pitch is clamped by the game, so overshooting just leaves the camera looking straight down.
+LookDown() {
+	global Config
+	MoveCamera(0, Config.lookDownCounts)
+}
+
+; The crosshair is the center of the Roblox window, not always the center of the screen.
+UpdateCenter() {
+	global Config
+	try {
+		WinGetClientPos(&cx, &cy, &cw, &ch, "ahk_exe RobloxPlayerBeta.exe")
+		Config.centerX := cx + cw // 2
+		Config.centerY := cy + ch // 2
+	} catch {
+		Config.centerX := A_ScreenWidth // 2
+		Config.centerY := A_ScreenHeight // 2
+	}
+	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
 }
 
 PressKey(key) {
