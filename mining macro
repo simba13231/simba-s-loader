@@ -10,7 +10,7 @@ SetDefaultMouseSpeed 1
 
 global Config := {
 	colors: [0x008EFF, 0xFF002E],
-	colorVariation: 5,
+	colorVariation: 2,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
@@ -46,8 +46,8 @@ global Config := {
 	repeatColor: "",
 	repeatX: 0,
 	repeatY: 0,
-	aimRepeatLimit: 5,
-	aimRepeatRadius: 200,
+	aimRepeatLimit: 4,
+	aimRepeatRadius: 400,
 	aimRepeatCount: 0,
 	aimRepeatColor: "",
 	aimRepeatX: 0,
