@@ -11,9 +11,9 @@ SetDefaultMouseSpeed 1
 global Config := {
 	colors: [0x008EFF, 0xFF002E],
 	colorVariation: 0,
-	minOreSize: 8,
-	oreSizeRadius: 6,
-	oreSizeStep: 2,
+	minOreSize: 3,
+	oreSizeRadius: 20,
+	oreSizeStep: 1,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
@@ -110,7 +110,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.3")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.4")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
