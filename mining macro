@@ -52,7 +52,14 @@ global Config := {
 	recalColor: 0x2F3637,
 	recalColorVariation: 1,
 	recalColorCooldownMs: 60000,
-
+	recalColorHoldMs: 5000,
+	recalColorGapMs: 2000,
+	recalLeft: 900,
+	recalTop: 500,
+	recalRight: 1010,
+	recalBottom: 570,
+	greySince: 0,
+	greyLastSeen: 0,
 	lastGreyTick: -1000000,
 	firstPerson: false,
 	camGain: 0.5,
@@ -273,11 +280,11 @@ ScanAndAct() {
 		return
 	}
 
-	; Special color that means "recalibrate now".
+	; Special color that means "recalibrate now" (after it has been seen for a few seconds).
 	trigX := 0
 	trigY := 0
-	if SeesRecalColor(&trigX, &trigY) {
-		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen at (" trigX ", " trigY "); recalibrating.")
+	if GreyHeldLongEnough(&trigX, &trigY) {
+		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen for " Round(Config.recalColorHoldMs / 1000) " s at (" trigX ", " trigY "); recalibrating.")
 		Config.lastGreyTick := A_TickCount
 		Recalibrate()
 		return
@@ -750,19 +757,33 @@ UpdateCenter() {
 	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
 }
 
-; True if the recalibration color is inside the scan box. After it triggers, it is ignored for
-; recalColorCooldownMs so it cannot fire again and again.
-SeesRecalColor(&foundX, &foundY) {
+; True once the grey has been seen nonstop for recalColorHoldMs. The timer resets as soon as
+; a scan does not find the grey, or if nothing was scanned for a while (like during a
+; recalibration). After it triggers, the grey is ignored for recalColorCooldownMs.
+GreyHeldLongEnough(&foundX, &foundY) {
 	global Config
-	if A_TickCount - Config.lastGreyTick < Config.recalColorCooldownMs
-		return false
-	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
-	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
-	try {
-		return PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, scanRight, scanBottom, Config.recalColor, Config.recalColorVariation)
-	} catch {
+	now := A_TickCount
+	if now - Config.lastGreyTick < Config.recalColorCooldownMs {
+		Config.greySince := 0
 		return false
 	}
+	right := Min(Config.recalRight, A_ScreenWidth - 1)
+	bottom := Min(Config.recalBottom, A_ScreenHeight - 1)
+	found := false
+	try {
+		found := PixelSearch(&foundX, &foundY, Config.recalLeft, Config.recalTop, right, bottom, Config.recalColor, Config.recalColorVariation)
+	} catch {
+		found := false
+	}
+	if !found {
+		Config.greySince := 0
+		return false
+	}
+	; Grey seen: start the timer, or restart it if the last sighting was too long ago.
+	if Config.greySince = 0 || now - Config.greyLastSeen > Config.recalColorGapMs
+		Config.greySince := now
+	Config.greyLastSeen := now
+	return now - Config.greySince >= Config.recalColorHoldMs
 }
 
 ; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
