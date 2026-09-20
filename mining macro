@@ -96,7 +96,7 @@ SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
 global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro")
 GuiMain.SetFont("s10", "Segoe UI")
-GuiMain.AddText("w360 Section", "Roblox Mining Macro, made by @miou2251")
+GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
 global WindowText := GuiMain.AddText("x+5 yp w265", "Not checked")
 GuiMain.AddText("xm y+10 w90", "Status:")
