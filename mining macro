@@ -9,7 +9,7 @@ SetMouseDelay 0
 SetDefaultMouseSpeed 1
 
 global Config := {
-	colors: [0xFF0020, 0x8EE6FF, 0x1EFFFF],
+	colors: [0x63FFFF, 0xFF0025, 0x0080FF],
 	colorVariation: 0,
 	scanLeft: 375,
 	scanTop: 222,
@@ -31,7 +31,14 @@ global Config := {
 	awaitingFallback: false,
 	cycleStarted: 0,
 	lastColor: "None",
-	lastPoint: "None"
+	lastPoint: "None",
+	repeatLimit: 5,
+	repeatRadius: 20,
+	repeatCount: 0,
+	repeatColor: "",
+	repeatX: 0,
+	repeatY: 0,
+	recalibrating: false
 }
 global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
@@ -50,7 +57,7 @@ GuiMain.AddText("xm y+10 w90", "Countdown:")
 global CountdownText := GuiMain.AddText("x+5 yp w265", "Idle")
 
 GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
-	GuiMain.AddText("xm y+14 w360", "Webhook notifications")
+	GuiMain.AddText("xm y+14 w360", "Webhook notifications (for debug, not needed)")
 	GuiMain.AddText("xm y+8 w75", "User ID")
 	global UserIdEdit := GuiMain.AddEdit("x+5 yp-3 w280", SavedUserId)
 	GuiMain.AddText("xm y+8 w75", "Webhook")
@@ -63,10 +70,11 @@ StartButton.OnEvent("Click", ToggleMacro)
 global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "Stop")
 StopButton.OnEvent("Click", StopMacro)
 GuiMain.AddText("xm y+12 w360 c666666", "F6 Start/stop    F7 Stop and release mouse")
-GuiMain.AddText("xm y+8 w360 c666666", "Colors: FF0020  8EE6FF  1EFFFF")
+GuiMain.AddText("xm y+8 w360 c666666", "Colors: 63FFFF  FF0025  0080FF")
 GuiMain.AddText("xm y+8 w360 c666666", "Scan box: (375, 222) to (1750, 860)")
 GuiMain.AddText("xm y+8 w360 c666666", "Ignored hat box: (800, 300) to (1125, 660)")
 GuiMain.AddText("xm y+8 w360 c666666", "Scan interval: 250 ms")
+GuiMain.AddText("xm y+8 w360 c666666", "Recalibrate after 5 repeat hits within 20 px")
 GuiMain.AddText("xm y+10 w360", "Debug log")
 global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
 GuiMain.OnEvent("Close", HandleClose)
@@ -99,6 +107,8 @@ StartMacro() {
 
 	Config.running := true
 	Config.status := "Starting"
+	Config.repeatCount := 0
+	Config.recalibrating := false
 	StartButton.Enabled := false
 	StopButton.Enabled := true
 	UpdateStatus("Focusing Roblox")
@@ -134,6 +144,8 @@ StopMacro(*) {
 	Config.running := false
 	Config.cycleActive := false
 	Config.awaitingFallback := false
+	Config.recalibrating := false
+	Config.repeatCount := 0
 	Config.status := "Stopped"
 	if Config.holding {
 		Click "Up"
@@ -154,6 +166,8 @@ EmergencyStop(*) {
 	Config.running := false
 	Config.cycleActive := false
 	Config.awaitingFallback := false
+	Config.recalibrating := false
+	Config.repeatCount := 0
 	if Config.holding {
 		Click "Up"
 		Config.holding := false
@@ -167,7 +181,7 @@ EmergencyStop(*) {
 
 ScanAndAct() {
 	global Config, DetectionText
-	if !Config.running
+	if !Config.running || Config.recalibrating
 		return
 	if !WinActive("ahk_exe RobloxPlayerBeta.exe") {
 		StopMacro()
@@ -199,6 +213,14 @@ ScanAndAct() {
 	}
 
 	if foundColor != "" {
+		; Same color again at (roughly) the same spot? Too many in a row means we're stuck.
+		if TrackRepeat(foundColor, foundX, foundY) {
+			DetectionText.Text := "Repeat #" foundColor " at (" foundX ", " foundY ")"
+			AddDebug("Color #" foundColor " detected " Config.repeatLimit " times within " Config.repeatRadius " px of (" Config.repeatX ", " Config.repeatY "); recalibrating.")
+			Recalibrate()
+			return
+		}
+
 		SetTimer FallbackClick, 0
 		Config.fallbackActive := false
 		DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
@@ -225,13 +247,15 @@ ScanAndAct() {
 		AddDebug("Target pixel hold completed at (" foundX ", " foundY ").")
 		MoveRandomOffset()
 		Config.awaitingFallback := true
-		AddDebug("Waiting 500 ms to confirm whether the color remains.")
-		Sleep 500
+		AddDebug("Waiting 100 ms to confirm whether the color remains.")
+		Sleep 100
 		if Config.running
 			ScanAndAct()
 		return
 	}
 
+	; Nothing found, so the repeat streak is broken.
+	Config.repeatCount := 0
 	DetectionText.Text := "No target color found"
 	if Config.holding && !Config.fallbackActive {
 		Click "Up"
@@ -248,6 +272,23 @@ ScanAndAct() {
 		AddDebug("No color found; fallback hold started.")
 	}
 	UpdateStatus("Scanning - fallback")
+}
+
+; Counts consecutive detections of the same color within repeatRadius pixels of
+; the first hit in the streak. Returns true once repeatLimit is reached.
+TrackRepeat(color, x, y) {
+	global Config
+	dx := x - Config.repeatX
+	dy := y - Config.repeatY
+	if Config.repeatCount > 0 && color = Config.repeatColor && (dx * dx + dy * dy) <= Config.repeatRadius ** 2 {
+		Config.repeatCount += 1
+	} else {
+		Config.repeatCount := 1
+		Config.repeatColor := color
+		Config.repeatX := x
+		Config.repeatY := y
+	}
+	return Config.repeatCount >= Config.repeatLimit
 }
 
 FallbackClick() {
@@ -287,8 +328,46 @@ MoveRandomOffset() {
 		JitterClick(currentX + 50, currentY)
 }
 
+; End-of-cycle recalibration. Runs when the 30s cycle ends, or when the same
+; color is detected repeatLimit times in the same spot.
+Recalibrate() {
+	global Config, CountdownText
+	if Config.recalibrating
+		return
+	Config.recalibrating := true
+	SetTimer FallbackClick, 0
+	Config.fallbackActive := false
+	Config.holding := false
+	Config.cycleActive := false
+	Config.awaitingFallback := false
+	Config.repeatCount := 0
+	CountdownText.Text := "Finishing..."
+	UpdateStatus("Finishing actions")
+	AddDebug("Performing end-of-cycle clicks.")
+	JitterClick(960, 100)
+	Sleep 1000
+	if !Config.running
+		return
+	JitterClick(190, 500)
+	Sleep 500
+	if !Config.running
+		return
+	JitterClick(190, 500)
+	UpdateStatus("Scanning")
+	Config.cycleStarted := A_TickCount
+	Config.cycleActive := true
+	Config.fallbackActive := true
+	Config.holding := true
+	JitterClick(Config.fallbackX, Config.fallbackY, "down")
+	SetTimer FallbackClick, 500
+	Config.recalibrating := false
+	ScanAndAct()
+}
+
 UpdateCountdown() {
 	global Config, CountdownText
+	if Config.recalibrating
+		return
 	if !Config.running || !Config.cycleActive {
 		CountdownText.Text := "Idle"
 		return
@@ -302,26 +381,8 @@ UpdateCountdown() {
 	elapsed := A_TickCount - Config.cycleStarted
 	remaining := Config.holdMs - elapsed
 	if remaining <= 0 {
-		SetTimer FallbackClick, 0
-		Config.fallbackActive := false
-		Config.holding := false
-		Config.cycleActive := false
-		CountdownText.Text := "Finishing..."
-		UpdateStatus("Finishing actions")
-		AddDebug("30 seconds elapsed; performing end-of-cycle clicks.")
-		JitterClick(960, 100)
-		Sleep 1000
-		JitterClick(190, 500)
-		Sleep 500
-		JitterClick(190, 500)
-		UpdateStatus("Scanning")
-		Config.cycleStarted := A_TickCount
-		Config.cycleActive := true
-		Config.fallbackActive := true
-		Config.holding := true
-		JitterClick(Config.fallbackX, Config.fallbackY, "down")
-		SetTimer FallbackClick, 500
-		ScanAndAct()
+		AddDebug("30 seconds elapsed; recalibrating.")
+		Recalibrate()
 		return
 	}
 
