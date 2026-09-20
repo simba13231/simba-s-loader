@@ -51,9 +51,9 @@ global Config := {
 	preRecalKeyDelayMs: 300,
 	recalColor: 0x2F3637,
 	recalColorVariation: 3,
-	recalColorCooldownMs: 10000,
+	recalColorCooldownMs: 30000,
 
-	lastRecalTick: 0,
+	lastGreyTick: -1000000,
 	firstPerson: false,
 	camGain: 0.5,
 	aimTolerance: 12,
@@ -167,7 +167,6 @@ StartMacro() {
 	}
 	FirstPersonCheck.Enabled := false
 	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
-	Config.lastRecalTick := A_TickCount
 	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
@@ -279,6 +278,7 @@ ScanAndAct() {
 	trigY := 0
 	if SeesRecalColor(&trigX, &trigY) {
 		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen at (" trigX ", " trigY "); recalibrating.")
+		Config.lastGreyTick := A_TickCount
 		Recalibrate()
 		return
 	}
@@ -498,7 +498,6 @@ Recalibrate() {
 		JitterClick(Config.fallbackX, Config.fallbackY, "down")
 		SetTimer FallbackClick, 500
 	}
-	Config.lastRecalTick := A_TickCount
 	Config.recalibrating := false
 	ScanAndAct()
 }
@@ -751,11 +750,11 @@ UpdateCenter() {
 	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
 }
 
-; True if the recalibration color is inside the scan box. Ignored for recalColorCooldownMs after any
-; recalibration so a color that stays visible cannot cause an endless loop.
+; True if the recalibration color is inside the scan box. After it triggers, it is ignored for
+; recalColorCooldownMs so it cannot fire again and again.
 SeesRecalColor(&foundX, &foundY) {
 	global Config
-	if A_TickCount - Config.lastRecalTick < Config.recalColorCooldownMs
+	if A_TickCount - Config.lastGreyTick < Config.recalColorCooldownMs
 		return false
 	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
 	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
