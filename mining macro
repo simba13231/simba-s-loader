@@ -38,7 +38,9 @@ global Config := {
 	repeatColor: "",
 	repeatX: 0,
 	repeatY: 0,
-	recalibrating: false
+	recalibrating: false,
+	preRecalKeys: ["1", "2"],
+	preRecalKeyDelayMs: 300
 }
 global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
@@ -345,6 +347,13 @@ Recalibrate() {
 	Config.repeatCount := 0
 	CountdownText.Text := "Finishing..."
 	UpdateStatus("Finishing actions")
+	AddDebug("Pressing keys before recalibrating.")
+	for key in Config.preRecalKeys {
+		PressKey(key)
+		Sleep Config.preRecalKeyDelayMs
+		if !Config.running
+			return
+	}
 	AddDebug("Performing end-of-cycle clicks.")
 	JitterClick(960, 100)
 	Sleep 1000
@@ -452,6 +461,12 @@ JsonEscape(value) {
 	value := StrReplace(value, Chr(34), Chr(92) Chr(34))
 	value := StrReplace(value, "`r", "\r")
 	return StrReplace(value, "`n", "\n")
+}
+
+PressKey(key) {
+	Send("{" key " down}")
+	Sleep 50
+	Send("{" key " up}")
 }
 
 JitterClick(x, y, action := "click") {
