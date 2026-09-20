@@ -83,7 +83,14 @@ global Config := {
 	holdLookedDown: false,
 	centerX: 960,
 	centerY: 540,
-	lookedDown: false
+	lookedDown: false,
+	periodicColor: 0x7AF50C,
+	periodicVariation: 0,
+	periodicLeft: 809,
+	periodicTop: 655,
+	periodicRight: 1108,
+	periodicBottom: 760,
+	periodicIntervalMs: 30000
 }
 global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
@@ -215,6 +222,7 @@ StartMacro() {
 	UpdateStatus("Scanning")
 	SetTimer ScanAndAct, Config.pollMs
 	SetTimer UpdateCountdown, 250
+	SetTimer PeriodicColorCheck, Config.periodicIntervalMs
 	ScanAndAct()
 }
 
@@ -223,6 +231,7 @@ StopMacro(*) {
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
 	SetTimer FallbackClick, 0
+	SetTimer PeriodicColorCheck, 0
 	Config.running := false
 	Config.cycleActive := false
 	Config.awaitingFallback := false
@@ -247,6 +256,7 @@ EmergencyStop(*) {
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
 	SetTimer FallbackClick, 0
+	SetTimer PeriodicColorCheck, 0
 	Config.running := false
 	Config.cycleActive := false
 	Config.awaitingFallback := false
@@ -409,6 +419,33 @@ FallbackClick() {
 		return
 	MouseMove 2, 0, 1, "R"
 	MouseMove -2, 0, 1, "R"
+}
+
+; Every periodicIntervalMs, checks a fixed region for a specific color.
+; If found, taps F twice with a 100ms gap.
+PeriodicColorCheck() {
+	global Config
+	if !Config.running || Config.recalibrating
+		return
+	if !WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return
+	right := Min(Config.periodicRight, A_ScreenWidth - 1)
+	bottom := Min(Config.periodicBottom, A_ScreenHeight - 1)
+	foundX := 0
+	foundY := 0
+	found := false
+	try {
+		found := PixelSearch(&foundX, &foundY, Config.periodicLeft, Config.periodicTop, right, bottom, Config.periodicColor, Config.periodicVariation)
+	} catch Error as err {
+		AddDebug("Periodic color check error: " err.Message)
+		return
+	}
+	if found {
+		AddDebug("Periodic check found color #" Format("{:06X}", Config.periodicColor) " at (" foundX ", " foundY "); pressing F twice.")
+		Send("{f}")
+		Sleep 100
+		Send("{f}")
+	}
 }
 
 FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
