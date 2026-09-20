@@ -49,6 +49,7 @@ global Config := {
 	recalibrating: false,
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
+	greyRecalKeys: ["3"],
 	recalColor: 0x2F3637,
 	recalColorVariation: 1,
 	recalColorCooldownMs: 60000,
@@ -288,7 +289,7 @@ ScanAndAct() {
 	if GreyHeldLongEnough(&trigX, &trigY) {
 		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen for " Round(Config.recalColorHoldMs / 1000) " s at (" trigX ", " trigY "); recalibrating.")
 		Config.lastGreyTick := A_TickCount
-		Recalibrate()
+		Recalibrate(Config.greyRecalKeys)
 		return
 	}
 
@@ -445,10 +446,12 @@ MoveRandomOffset() {
 
 ; End-of-cycle recalibration. Runs when the 30s cycle ends, or when the same
 ; color is detected repeatLimit times in the same spot.
-Recalibrate() {
+Recalibrate(keys := "") {
 	global Config, CountdownText
 	if Config.recalibrating
 		return
+	if !IsObject(keys)
+		keys := Config.preRecalKeys
 	Config.recalibrating := true
 	; First person: stop jiggling and let go of the mouse button before the menu clicks.
 	StopJiggle()
@@ -463,7 +466,7 @@ Recalibrate() {
 	CountdownText.Text := "Finishing..."
 	UpdateStatus("Finishing actions")
 	AddDebug("Pressing keys before recalibrating.")
-	for key in Config.preRecalKeys {
+	for key in keys {
 		PressKey(key)
 		Sleep Config.preRecalKeyDelayMs
 		if !Config.running
