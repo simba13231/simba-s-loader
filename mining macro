@@ -69,6 +69,8 @@ global StartButton := GuiMain.AddButton("xm y+15 w115", "Start")
 StartButton.OnEvent("Click", ToggleMacro)
 global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "Stop")
 StopButton.OnEvent("Click", StopMacro)
+global ReloadButton := GuiMain.AddButton("x+8 yp w115", "Reload")
+ReloadButton.OnEvent("Click", ReloadScript)
 GuiMain.AddText("xm y+12 w360 c666666", "F6 Start/stop    F7 Stop and release mouse")
 GuiMain.AddText("xm y+8 w360 c666666", "Colors: 33FFFF  005EFF  FF0025  (variation 2)")
 GuiMain.AddText("xm y+8 w360 c666666", "Scan box: (375, 222) to (1750, 860)")
@@ -393,6 +395,21 @@ TestWebhook(*) {
 	SaveSettings()
 	if SendWebhook("Webhook test from Roblox Mining Macro.")
 		AddDebug("Webhook test sent successfully.")
+}
+
+ReloadScript(*) {
+	SaveSettings()
+	; Stop timers and release the mouse first so it isn't left held down.
+	EmergencyStop()
+	; The launcher passes its own path as the first argument; run it again and close this copy.
+	if A_Args.Length >= 1 && FileExist(A_Args[1]) {
+		AddDebug("Restarting through the launcher...")
+		Run('"' A_AhkPath '" "' A_Args[1] '"')
+		ExitApp()
+	}
+	; Started without the launcher: just reload this file.
+	AddDebug("No launcher path given; reloading this file.")
+	Reload()
 }
 
 HandleClose(*) {
