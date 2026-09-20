@@ -107,7 +107,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.0")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.1")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
