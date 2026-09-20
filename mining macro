@@ -50,7 +50,7 @@ global Config := {
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
 	recalColor: 0x2F3637,
-	recalColorVariation: 1,
+	recalColorVariation: 2,
 	recalColorCooldownMs: 60000,
 	recalColorHoldMs: 5000,
 	recalColorGapMs: 2000,
