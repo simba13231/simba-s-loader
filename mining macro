@@ -49,6 +49,11 @@ global Config := {
 	recalibrating: false,
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
+	recalColor: 0x2F3637,
+	recalColorVariation: 3,
+	recalColorCooldownMs: 10000,
+
+	lastRecalTick: 0,
 	firstPerson: false,
 	camGain: 0.5,
 	aimTolerance: 12,
@@ -106,27 +111,21 @@ GuiMain.AddText("xm y+15 w110", "Recalibrate every")
 global CycleEdit := GuiMain.AddEdit("x+5 yp-3 w60 Number", SavedCycleSeconds)
 GuiMain.AddUpDown("Range15-180", SavedCycleSeconds)
 GuiMain.AddText("x+8 yp+3 w150", "seconds (15 to 180)")
-global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (faster)")
-global StartButton := GuiMain.AddButton("xm y+12 w115", "Start")
+global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (aims camera, no hat zone)")
+global StartButton := GuiMain.AddButton("xm y+12 w115", "F6   Start")
 StartButton.OnEvent("Click", ToggleMacro)
-global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "Stop")
+global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "F7   Stop")
 StopButton.OnEvent("Click", StopMacro)
-global ReloadButton := GuiMain.AddButton("x+8 yp w115", "Reload")
+global ReloadButton := GuiMain.AddButton("x+8 yp w115", "F5   Reload")
 ReloadButton.OnEvent("Click", ReloadScript)
-GuiMain.AddText("xm y+12 w360 c666666", "F6 Start/stop    F7 Stop and release mouse")
-GuiMain.AddText("xm y+8 w360 c666666", "Colors: 008EFF  FF002E  (exact match)")
-GuiMain.AddText("xm y+8 w360 c666666", "Scan box: (375, 222) to (1750, 860)")
-GuiMain.AddText("xm y+8 w360 c666666", "First person scan box: (350, 125) to (1905, 865)")
-GuiMain.AddText("xm y+8 w360 c666666", "Ignored hat box: (800, 300) to (1125, 660) (not in first person)")
-GuiMain.AddText("xm y+8 w360 c666666", "Scan interval: 250 ms")
-GuiMain.AddText("xm y+8 w360 c666666", "First person: aims camera at ore, looks down when idle")
-GuiMain.AddText("xm y+8 w360 c666666", "First person: same color for 1 s = look down; ore = jiggle")
-GuiMain.AddText("xm y+8 w360 c666666", "Third person: 5 repeat hits within 20 px = recalibrate")
 GuiMain.AddText("xm y+10 w360", "Debug log")
 global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
 GuiMain.OnEvent("Close", HandleClose)
 GuiMain.Show()
 
+$F5:: {
+	ReloadScript()
+}
 $F6:: {
 	ToggleMacro()
 }
@@ -168,6 +167,7 @@ StartMacro() {
 	}
 	FirstPersonCheck.Enabled := false
 	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
+	Config.lastRecalTick := A_TickCount
 	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
@@ -271,6 +271,15 @@ ScanAndAct() {
 	if scanRight < Config.scanLeft || scanBottom < Config.scanTop {
 		AddDebug("Scan box is outside the current screen size.")
 		StopMacro()
+		return
+	}
+
+	; Special color that means "recalibrate now".
+	trigX := 0
+	trigY := 0
+	if SeesRecalColor(&trigX, &trigY) {
+		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen at (" trigX ", " trigY "); recalibrating.")
+		Recalibrate()
 		return
 	}
 
@@ -489,6 +498,7 @@ Recalibrate() {
 		JitterClick(Config.fallbackX, Config.fallbackY, "down")
 		SetTimer FallbackClick, 500
 	}
+	Config.lastRecalTick := A_TickCount
 	Config.recalibrating := false
 	ScanAndAct()
 }
@@ -739,6 +749,21 @@ UpdateCenter() {
 		Config.centerY := A_ScreenHeight // 2
 	}
 	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
+}
+
+; True if the recalibration color is inside the scan box. Ignored for recalColorCooldownMs after any
+; recalibration so a color that stays visible cannot cause an endless loop.
+SeesRecalColor(&foundX, &foundY) {
+	global Config
+	if A_TickCount - Config.lastRecalTick < Config.recalColorCooldownMs
+		return false
+	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
+	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
+	try {
+		return PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, scanRight, scanBottom, Config.recalColor, Config.recalColorVariation)
+	} catch {
+		return false
+	}
 }
 
 ; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
