@@ -50,8 +50,8 @@ global Config := {
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
 	recalColor: 0x2F3637,
-	recalColorVariation: 3,
-	recalColorCooldownMs: 30000,
+	recalColorVariation: 1,
+	recalColorCooldownMs: 60000,
 
 	lastGreyTick: -1000000,
 	firstPerson: false,
