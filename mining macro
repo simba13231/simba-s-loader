@@ -11,9 +11,6 @@ SetDefaultMouseSpeed 1
 global Config := {
 	colors: [0x008EFF, 0xFF002E],
 	colorVariation: 0,
-	minOreSize: 0,
-	oreSizeRadius: 0,
-	oreSizeStep: 0,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
@@ -72,7 +69,7 @@ global Config := {
 	greyLastSeen: 0,
 	lastGreyTick: -1000000,
 	firstPerson: false,
-	camGain: 0.9,
+	camGain: 0.7,
 	aimTolerance: 12,
 	aimMaxSteps: 15,
 	aimStepDelayMs: 15,
@@ -82,7 +79,7 @@ global Config := {
 	lookDownAfterMs: 500,
 	lookDownPauseMs: 1500,
 	aimPausedUntil: 0,
-	jiggleAmount: 100,
+	jiggleAmount: 25,
 	jiggleMs: 50,
 	jiggleOffset: 0,
 	jiggling: false,
@@ -110,7 +107,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.5")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.2.0")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
@@ -486,58 +483,18 @@ FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
 
 	; First person: no character in view, so search the whole scan box.
 	if Config.firstPerson
-		return SearchValidTarget(&foundX, &foundY, color, Config.scanLeft, Config.scanTop, scanRight, scanBottom, variation)
+		return PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, scanRight, scanBottom, color, variation)
 
 	; Search the four regions surrounding the ignored hat rectangle.
-	if SearchValidTarget(&foundX, &foundY, color, Config.scanLeft, Config.scanTop, Config.excludeLeft - 1, scanBottom, variation)
+	if PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, Config.excludeLeft - 1, scanBottom, color, variation)
 		return true
-	if SearchValidTarget(&foundX, &foundY, color, Config.excludeRight + 1, Config.scanTop, scanRight, scanBottom, variation)
+	if PixelSearch(&foundX, &foundY, Config.excludeRight + 1, Config.scanTop, scanRight, scanBottom, color, variation)
 		return true
-	if SearchValidTarget(&foundX, &foundY, color, Config.excludeLeft, Config.scanTop, Config.excludeRight, Config.excludeTop - 1, variation)
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.scanTop, Config.excludeRight, Config.excludeTop - 1, color, variation)
 		return true
-	if SearchValidTarget(&foundX, &foundY, color, Config.excludeLeft, Config.excludeBottom + 1, Config.excludeRight, scanBottom, variation)
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.excludeBottom + 1, Config.excludeRight, scanBottom, color, variation)
 		return true
 	return false
-}
-
-; Finds the first pixel of "color" in the given box, then checks that enough matching
-; pixels sit near it to count as a real ore blob rather than a stray speck or glare.
-SearchValidTarget(&foundX, &foundY, color, left, top, right, bottom, variation) {
-	global Config
-	if right < left || bottom < top
-		return false
-	if !PixelSearch(&foundX, &foundY, left, top, right, bottom, color, variation)
-		return false
-	if CountNearbyColor(foundX, foundY, color, Config.oreSizeRadius, Config.oreSizeStep, variation) < Config.minOreSize
-		return false
-	return true
-}
-
-; Samples a grid of points within "radius" pixels of (x, y), spaced "step" pixels apart,
-; and counts how many are within "variation" of "color" (including the center point).
-CountNearbyColor(x, y, color, radius, step, variation) {
-	count := 0
-	targetR := (color >> 16) & 0xFF
-	targetG := (color >> 8) & 0xFF
-	targetB := color & 0xFF
-	dy := -radius
-	while dy <= radius {
-		dx := -radius
-		while dx <= radius {
-			try {
-				c := PixelGetColor(x + dx, y + dy, "RGB")
-				r := (c >> 16) & 0xFF
-				g := (c >> 8) & 0xFF
-				b := c & 0xFF
-				if Abs(r - targetR) <= variation && Abs(g - targetG) <= variation && Abs(b - targetB) <= variation
-					count += 1
-			} catch {
-			}
-			dx += step
-		}
-		dy += step
-	}
-	return count
 }
 
 MoveRandomOffset() {
