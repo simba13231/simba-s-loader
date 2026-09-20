@@ -10,7 +10,7 @@ SetDefaultMouseSpeed 1
 
 global Config := {
 	colors: [0x008EFF, 0xFF002E],
-	colorVariation: 1,
+	colorVariation: 0,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
@@ -69,10 +69,10 @@ global Config := {
 	greyLastSeen: 0,
 	lastGreyTick: -1000000,
 	firstPerson: false,
-	camGain: 0.5,
+	camGain: 1,
 	aimTolerance: 12,
 	aimMaxSteps: 15,
-	aimStepDelayMs: 15,
+	aimStepDelayMs: 50,
 	aimOffsetX: 0,
 	aimOffsetY: 0,
 	lookDownCounts: 2500,
