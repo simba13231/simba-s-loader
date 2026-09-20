@@ -50,7 +50,7 @@ global Config := {
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
 	recalColor: 0x2F3637,
-	recalColorVariation: 2,
+	recalColorVariation: 1,
 	recalColorCooldownMs: 60000,
 	recalColorHoldMs: 5000,
 	recalColorGapMs: 2000,
@@ -129,6 +129,7 @@ GuiMain.AddText("xm y+10 w360", "Debug log")
 global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
 GuiMain.OnEvent("Close", HandleClose)
 GuiMain.Show()
+FocusRoblox()
 
 $F5:: {
 	ReloadScript()
@@ -784,6 +785,20 @@ GreyHeldLongEnough(&foundX, &foundY) {
 		Config.greySince := now
 	Config.greyLastSeen := now
 	return now - Config.greySince >= Config.recalColorHoldMs
+}
+
+; On launch: bring Roblox to the front and maximize it (windowed, with the title bar and
+; taskbar still showing), so the fixed screen coordinates line up.
+FocusRoblox() {
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
+		AddDebug("Roblox not found at launch; open it, then press F6.")
+		return
+	}
+	WinActivate("ahk_exe RobloxPlayerBeta.exe")
+	WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2)
+	if WinGetMinMax("ahk_exe RobloxPlayerBeta.exe") != 1
+		WinMaximize("ahk_exe RobloxPlayerBeta.exe")
+	AddDebug("Roblox focused and maximized.")
 }
 
 ; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
