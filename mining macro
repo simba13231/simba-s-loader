@@ -69,9 +69,9 @@ global Config := {
 	greyLastSeen: 0,
 	lastGreyTick: -1000000,
 	firstPerson: false,
-	camGain: 0.0,
+	camGain: 0.9,
 	aimTolerance: 12,
-	aimMaxSteps: 3,
+	aimMaxSteps: 15,
 	aimStepDelayMs: 15,
 	aimOffsetX: 0,
 	aimOffsetY: 0,
@@ -107,7 +107,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.1")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.2")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
