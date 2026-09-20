@@ -10,7 +10,7 @@ SetDefaultMouseSpeed 1
 
 global Config := {
 	colors: [0x008EFF, 0xFF002E],
-	colorVariation: 0,
+	colorVariation: 5,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
