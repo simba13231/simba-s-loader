@@ -176,14 +176,15 @@ StartMacro() {
 	FirstPersonCheck.Enabled := false
 	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
 	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
+	if A_ScreenWidth != 1920 || A_ScreenHeight != 1080
+		AddDebug("Warning: screen is " A_ScreenWidth "x" A_ScreenHeight ". The positions in this macro are set for 1920x1080.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
 	StartButton.Enabled := false
 	StopButton.Enabled := true
 	UpdateStatus("Focusing Roblox")
 	AddDebug("Starting macro at fixed fallback point (950, 550).")
-	WinActivate("ahk_exe RobloxPlayerBeta.exe")
-	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2) {
+	if !FocusRoblox() {
 		StopMacro()
 		UpdateStatus("Could not focus Roblox")
 		return
@@ -524,6 +525,7 @@ UpdateCountdown() {
 		return
 	}
 
+	KeepRobloxMaximized()
 	elapsed := A_TickCount - Config.cycleStarted
 	remaining := Config.holdMs - elapsed
 	if remaining <= 0 {
@@ -787,18 +789,49 @@ GreyHeldLongEnough(&foundX, &foundY) {
 	return now - Config.greySince >= Config.recalColorHoldMs
 }
 
-; On launch: bring Roblox to the front and maximize it (windowed, with the title bar and
-; taskbar still showing), so the fixed screen coordinates line up.
+; Bring Roblox to the front and make sure its window is maximized (windowed, with the title
+; bar and taskbar still showing) so the fixed screen coordinates line up. Returns false if
+; Roblox is not running or could not be focused.
 FocusRoblox() {
 	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
-		AddDebug("Roblox not found at launch; open it, then press F6.")
-		return
+		AddDebug("Roblox not found; open it first.")
+		return false
 	}
 	WinActivate("ahk_exe RobloxPlayerBeta.exe")
-	WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2)
-	if WinGetMinMax("ahk_exe RobloxPlayerBeta.exe") != 1
+	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2)
+		return false
+	if !RobloxIsBigEnough() {
 		WinMaximize("ahk_exe RobloxPlayerBeta.exe")
-	AddDebug("Roblox focused and maximized.")
+		Sleep 300
+		AddDebug("Roblox window was small; maximized it.")
+	}
+	return true
+}
+
+; True if the Roblox window fills the screen (maximized or fullscreen).
+RobloxIsBigEnough() {
+	try {
+		WinGetClientPos(&cx, &cy, &cw, &ch, "ahk_exe RobloxPlayerBeta.exe")
+		return cw >= A_ScreenWidth - 20 && ch >= A_ScreenHeight - 120
+	} catch {
+		return false
+	}
+}
+
+; While running: if someone shrinks the Roblox window, maximize it again (at most every 3 s).
+KeepRobloxMaximized() {
+	global Config
+	static lastTry := 0
+	if RobloxIsBigEnough()
+		return
+	if A_TickCount - lastTry < 3000
+		return
+	lastTry := A_TickCount
+	WinMaximize("ahk_exe RobloxPlayerBeta.exe")
+	Sleep 300
+	if Config.firstPerson
+		UpdateCenter()
+	AddDebug("Roblox window was too small; maximized it again.")
 }
 
 ; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
