@@ -76,6 +76,10 @@ global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
 global SavedWebhookUrl := IniRead(SettingsFile, "Webhook", "Url", "")
 global SavedFirstPerson := IniRead(SettingsFile, "Options", "FirstPerson", "0")
+global SavedCycleSeconds := IniRead(SettingsFile, "Options", "CycleSeconds", "30")
+if !IsInteger(SavedCycleSeconds)
+	SavedCycleSeconds := 30
+SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
 global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro")
 GuiMain.SetFont("s10", "Segoe UI")
@@ -98,6 +102,10 @@ GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
 	global TestWebhookButton := GuiMain.AddButton("xm y+8 w115", "Test webhook")
 	TestWebhookButton.OnEvent("Click", TestWebhook)
 
+GuiMain.AddText("xm y+15 w110", "Recalibrate every")
+global CycleEdit := GuiMain.AddEdit("x+5 yp-3 w60 Number", SavedCycleSeconds)
+GuiMain.AddUpDown("Range15-180", SavedCycleSeconds)
+GuiMain.AddText("x+8 yp+3 w150", "seconds (15 to 180)")
 global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (aims camera, no hat zone)")
 global StartButton := GuiMain.AddButton("xm y+12 w115", "Start")
 StartButton.OnEvent("Click", ToggleMacro)
@@ -159,6 +167,7 @@ StartMacro() {
 		Config.scanBottom := Config.tpScanBottom
 	}
 	FirstPersonCheck.Enabled := false
+	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
 	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
@@ -458,6 +467,7 @@ Recalibrate() {
 		return
 	JitterClick(190, 500)
 	UpdateStatus("Scanning")
+	ApplyCycleSetting()
 	Config.cycleStarted := A_TickCount
 	Config.cycleActive := true
 	Config.holding := true
@@ -500,7 +510,7 @@ UpdateCountdown() {
 	elapsed := A_TickCount - Config.cycleStarted
 	remaining := Config.holdMs - elapsed
 	if remaining <= 0 {
-		AddDebug("30 seconds elapsed; recalibrating.")
+		AddDebug(Round(Config.holdMs / 1000) " seconds elapsed; recalibrating.")
 		Recalibrate()
 		return
 	}
@@ -535,10 +545,11 @@ HandleClose(*) {
 }
 
 SaveSettings() {
-	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck
+	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck, CycleEdit
 	IniWrite(UserIdEdit.Value, SettingsFile, "Webhook", "UserId")
 	IniWrite(WebhookEdit.Value, SettingsFile, "Webhook", "Url")
 	IniWrite(FirstPersonCheck.Value, SettingsFile, "Options", "FirstPerson")
+	IniWrite(CycleEdit.Value, SettingsFile, "Options", "CycleSeconds")
 }
 
 SendWebhook(message) {
@@ -728,6 +739,16 @@ UpdateCenter() {
 		Config.centerY := A_ScreenHeight // 2
 	}
 	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
+}
+
+; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
+ApplyCycleSetting() {
+	global Config, CycleEdit
+	seconds := IsInteger(CycleEdit.Value) ? Integer(CycleEdit.Value) : Config.holdMs // 1000
+	seconds := Min(180, Max(15, seconds))
+	CycleEdit.Value := seconds
+	Config.holdMs := seconds * 1000
+	return seconds
 }
 
 PressKey(key) {
