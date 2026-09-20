@@ -46,12 +46,18 @@ global Config := {
 	repeatColor: "",
 	repeatX: 0,
 	repeatY: 0,
+	aimRepeatLimit: 5,
+	aimRepeatRadius: 200,
+	aimRepeatCount: 0,
+	aimRepeatColor: "",
+	aimRepeatX: 0,
+	aimRepeatY: 0,
 	recalibrating: false,
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
 	greyRecalKeys: ["3"],
 	recalColor: 0x1E2A2D,
-	recalColorVariation: 15,
+	recalColorVariation: 7,
 	recalColorCooldownMs: 30000,
 	recalColorHoldMs: 5000,
 	recalColorGapMs: 2000,
@@ -101,7 +107,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.0.0")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.1.0")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
@@ -371,6 +377,7 @@ ScanAndAct() {
 		; No ore in view: stop jiggling, keep holding the mouse and look back down.
 		StopJiggle()
 		Config.holdColor := ""
+		Config.aimRepeatCount := 0
 		if !Config.lookedDown {
 			AddDebug("No ore in view; looking down.")
 			LookDown()
@@ -411,6 +418,28 @@ TrackRepeat(color, x, y) {
 		Config.repeatY := y
 	}
 	return Config.repeatCount >= Config.repeatLimit
+}
+
+; Same as TrackRepeat, but a separate counter for first-person aiming: counts consecutive
+; detections of the same color within aimRepeatRadius pixels of the first hit in the streak.
+; Returns true (and resets the count) once aimRepeatLimit is reached.
+TrackAimRepeat(color, x, y) {
+	global Config
+	dx := x - Config.aimRepeatX
+	dy := y - Config.aimRepeatY
+	if Config.aimRepeatCount > 0 && color = Config.aimRepeatColor && (dx * dx + dy * dy) <= Config.aimRepeatRadius ** 2 {
+		Config.aimRepeatCount += 1
+	} else {
+		Config.aimRepeatCount := 1
+		Config.aimRepeatColor := color
+		Config.aimRepeatX := x
+		Config.aimRepeatY := y
+	}
+	if Config.aimRepeatCount >= Config.aimRepeatLimit {
+		Config.aimRepeatCount := 0
+		return true
+	}
+	return false
 }
 
 FallbackClick() {
@@ -653,6 +682,17 @@ AimAtOre(foundColor, foundX, foundY) {
 	Config.lastPoint := foundX ", " foundY
 	StartJiggle()
 
+	; Same color detected too many times in a row near the same spot: stop trying to
+	; aim and just look down.
+	if TrackAimRepeat(foundColor, foundX, foundY) {
+		AddDebug("Color #" foundColor " detected " Config.aimRepeatLimit " times within " Config.aimRepeatRadius " px of (" Config.aimRepeatX ", " Config.aimRepeatY "); looking down.")
+		LookDown()
+		Config.lookedDown := true
+		Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+		UpdateStatus("Mining down")
+		return
+	}
+
 	; Just looked down on purpose: keep mining downward instead of turning back to the ore.
 	if A_TickCount < Config.aimPausedUntil {
 		UpdateStatus("Mining down")
@@ -686,12 +726,22 @@ AimAtOre(foundColor, foundX, foundY) {
 	}
 	Config.aiming := false
 
-	; Same color held for lookDownAfterMs: go for the block below.
+	; Same color held for lookDownAfterMs: go for the block below - but only if no ore
+	; is still visible. If ore is still in view, stay on it instead of diving down.
 	if ColorHeldLongEnough(foundColor) {
-		AddDebug("Color #" foundColor " held for " Config.lookDownAfterMs " ms; looking down.")
-		LookDown()
-		Config.lookedDown := true
-		Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+		stillOreColor := ""
+		stillOreX := 0
+		stillOreY := 0
+		if FindAnyTarget(&stillOreColor, &stillOreX, &stillOreY) {
+			; Ore still visible: re-arm the hold check and keep mining it instead of
+			; committing to a look-down.
+			Config.holdLookedDown := false
+		} else {
+			AddDebug("Color #" foundColor " held for " Config.lookDownAfterMs " ms; looking down.")
+			LookDown()
+			Config.lookedDown := true
+			Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+		}
 	}
 	UpdateStatus("Mining ore")
 }
