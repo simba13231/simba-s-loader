@@ -69,6 +69,7 @@ global Config := {
 	greyLastSeen: 0,
 	lastGreyTick: -1000000,
 	firstPerson: false,
+	digDownOnly: false,
 	camGain: 1,
 	aimTolerance: 12,
 	aimMaxSteps: 15,
@@ -102,12 +103,13 @@ global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
 global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
 global SavedWebhookUrl := IniRead(SettingsFile, "Webhook", "Url", "")
 global SavedFirstPerson := IniRead(SettingsFile, "Options", "FirstPerson", "0")
+global SavedDigDownOnly := IniRead(SettingsFile, "Options", "DigDownOnly", "0")
 global SavedCycleSeconds := IniRead(SettingsFile, "Options", "CycleSeconds", "30")
 if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 2.0.0")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.2.2")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
@@ -133,6 +135,9 @@ global CycleEdit := GuiMain.AddEdit("x+5 yp-3 w60 Number", SavedCycleSeconds)
 GuiMain.AddUpDown("Range15-180", SavedCycleSeconds)
 GuiMain.AddText("x+8 yp+3 w150", "seconds (15 to 180)")
 global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (faster)")
+global DigDownCheck := GuiMain.AddCheckbox("xm y+4 w360" . (SavedDigDownOnly = "1" ? " Checked" : ""), "Dig down only (skip ore detection, just hold + mine straight down)")
+DigDownCheck.OnEvent("Click", UpdateDigDownState)
+UpdateDigDownState()
 global StartButton := GuiMain.AddButton("xm y+12 w115", "F6   Start")
 StartButton.OnEvent("Click", ToggleMacro)
 global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "F7   Stop")
@@ -155,6 +160,13 @@ $F7:: {
 	EmergencyStop()
 }
 
+; Dig down only has no aiming, so first-person camera-aim mode doesn't apply.
+; Grey it out while dig-down is checked to avoid confusion; restore it otherwise.
+UpdateDigDownState(*) {
+	global FirstPersonCheck, DigDownCheck
+	FirstPersonCheck.Enabled := !DigDownCheck.Value
+}
+
 ToggleMacro(*) {
 	global Config
 	if Config.running {
@@ -165,7 +177,7 @@ ToggleMacro(*) {
 }
 
 StartMacro() {
-	global Config, StartButton, StopButton
+	global Config, StartButton, StopButton, FirstPersonCheck, DigDownCheck
 	SaveSettings()
 	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
 		UpdateStatus("Roblox is not running")
@@ -175,7 +187,8 @@ StartMacro() {
 
 	Config.running := true
 	Config.status := "Starting"
-	Config.firstPerson := (FirstPersonCheck.Value = 1)
+	Config.digDownOnly := (DigDownCheck.Value = 1)
+	Config.firstPerson := Config.digDownOnly ? true : (FirstPersonCheck.Value = 1)
 	if Config.firstPerson {
 		Config.scanLeft := Config.fpScanLeft
 		Config.scanTop := Config.fpScanTop
@@ -188,8 +201,12 @@ StartMacro() {
 		Config.scanBottom := Config.tpScanBottom
 	}
 	FirstPersonCheck.Enabled := false
+	DigDownCheck.Enabled := false
 	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
-	AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
+	if Config.digDownOnly
+		AddDebug("Dig-down-only mode: ore detection disabled, mining straight down.")
+	else
+		AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
 	if A_ScreenWidth != 1920 || A_ScreenHeight != 1080
 		AddDebug("Warning: screen is " A_ScreenWidth "x" A_ScreenHeight ". The positions in this macro are set for 1920x1080.")
 	Config.repeatCount := 0
@@ -225,7 +242,7 @@ StartMacro() {
 		JitterClick(Config.fallbackX, Config.fallbackY, "down")
 		SetTimer FallbackClick, 500
 	}
-	UpdateStatus("Scanning")
+	UpdateStatus(Config.digDownOnly ? "Digging down" : "Scanning")
 	SetTimer ScanAndAct, Config.pollMs
 	SetTimer UpdateCountdown, 250
 	SetTimer PeriodicColorCheck, Config.periodicIntervalMs
@@ -233,7 +250,7 @@ StartMacro() {
 }
 
 StopMacro(*) {
-	global Config, StartButton, StopButton, CountdownText
+	global Config, StartButton, StopButton, CountdownText, DigDownCheck
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
 	SetTimer FallbackClick, 0
@@ -253,12 +270,13 @@ StopMacro(*) {
 	UpdateStatus("Stopped")
 	CountdownText.Text := "Idle"
 	StopJiggle()
-	FirstPersonCheck.Enabled := true
+	DigDownCheck.Enabled := true
+	UpdateDigDownState()
 	AddDebug("Macro stopped and mouse released.")
 }
 
 EmergencyStop(*) {
-	global Config, StartButton, StopButton, CountdownText
+	global Config, StartButton, StopButton, CountdownText, DigDownCheck
 	SetTimer ScanAndAct, 0
 	SetTimer UpdateCountdown, 0
 	SetTimer FallbackClick, 0
@@ -277,7 +295,8 @@ EmergencyStop(*) {
 	CountdownText.Text := "Idle"
 	UpdateStatus("Stopped")
 	StopJiggle()
-	FirstPersonCheck.Enabled := true
+	DigDownCheck.Enabled := true
+	UpdateDigDownState()
 	AddDebug("Emergency stop: timers cancelled and mouse released.")
 }
 
@@ -306,6 +325,23 @@ ScanAndAct() {
 		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen for " Round(Config.recalColorHoldMs / 1000) " s at (" trigX ", " trigY "); recalibrating.")
 		Config.lastGreyTick := A_TickCount
 		Recalibrate(Config.greyRecalKeys)
+		return
+	}
+
+	; Dig-down-only: no ore detection at all. Keep looking down and holding
+	; the mouse button; the grey check above and the cycle timer still drive
+	; recalibration as usual.
+	if Config.digDownOnly {
+		DetectionText.Text := "Dig-down only"
+		if !Config.lookedDown {
+			LookDown()
+			Config.lookedDown := true
+		}
+		if !Config.holding {
+			Click "Down"
+			Config.holding := true
+		}
+		UpdateStatus("Digging down")
 		return
 	}
 
@@ -553,7 +589,7 @@ Recalibrate(keys := "") {
 	if !Config.running
 		return
 	JitterClick(190, 500)
-	UpdateStatus("Scanning")
+	UpdateStatus(Config.digDownOnly ? "Digging down" : "Scanning")
 	ApplyCycleSetting()
 	Config.cycleStarted := A_TickCount
 	Config.cycleActive := true
@@ -633,10 +669,11 @@ HandleClose(*) {
 }
 
 SaveSettings() {
-	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck, CycleEdit
+	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck, DigDownCheck, CycleEdit
 	IniWrite(UserIdEdit.Value, SettingsFile, "Webhook", "UserId")
 	IniWrite(WebhookEdit.Value, SettingsFile, "Webhook", "Url")
 	IniWrite(FirstPersonCheck.Value, SettingsFile, "Options", "FirstPerson")
+	IniWrite(DigDownCheck.Value, SettingsFile, "Options", "DigDownOnly")
 	IniWrite(CycleEdit.Value, SettingsFile, "Options", "CycleSeconds")
 }
 
