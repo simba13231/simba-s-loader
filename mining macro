@@ -58,7 +58,7 @@ global Config := {
 	greyRecalKeys: ["3"],
 	recalColor: 0x1E2A2D,
 	recalColorVariation: 7,
-	recalColorCooldownMs: 30000,
+	recalColorCooldownMs: 10000,
 	recalColorHoldMs: 5000,
 	recalColorGapMs: 2000,
 	recalLeft: 900,
