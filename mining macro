@@ -58,7 +58,7 @@ global Config := {
 	greyRecalKeys: ["3"],
 	recalColor: 0x1E2A2D,
 	recalColorVariation: 7,
-	recalColorCooldownMs: 10000,
+	recalColorCooldownMs: 30000,
 	recalColorHoldMs: 5000,
 	recalColorGapMs: 2000,
 	recalLeft: 900,
@@ -100,8 +100,6 @@ global Config := {
 	periodicIntervalMs: 30000
 }
 global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
-global SavedUserId := IniRead(SettingsFile, "Webhook", "UserId", "")
-global SavedWebhookUrl := IniRead(SettingsFile, "Webhook", "Url", "")
 global SavedFirstPerson := IniRead(SettingsFile, "Options", "FirstPerson", "0")
 global SavedDigDownOnly := IniRead(SettingsFile, "Options", "DigDownOnly", "0")
 global SavedCycleSeconds := IniRead(SettingsFile, "Options", "CycleSeconds", "30")
@@ -122,13 +120,6 @@ GuiMain.AddText("xm y+10 w90", "Countdown:")
 global CountdownText := GuiMain.AddText("x+5 yp w265", "Idle")
 
 GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
-	GuiMain.AddText("xm y+14 w360", "Webhook notifications (for debug, not needed)")
-	GuiMain.AddText("xm y+8 w75", "User ID")
-	global UserIdEdit := GuiMain.AddEdit("x+5 yp-3 w280", SavedUserId)
-	GuiMain.AddText("xm y+8 w75", "Webhook")
-	global WebhookEdit := GuiMain.AddEdit("x+5 yp-3 w280", SavedWebhookUrl)
-	global TestWebhookButton := GuiMain.AddButton("xm y+8 w115", "Test webhook")
-	TestWebhookButton.OnEvent("Click", TestWebhook)
 
 GuiMain.AddText("xm y+15 w110", "Recalibrate every")
 global CycleEdit := GuiMain.AddEdit("x+5 yp-3 w60 Number", SavedCycleSeconds)
@@ -383,8 +374,6 @@ ScanAndAct() {
 		}
 		Config.awaitingFallback := false
 		UpdateStatus("Color found - clicking target")
-		if !wasHolding
-			SendWebhook("Color #" foundColor " detected at (" foundX ", " foundY ").")
 		AddDebug("Moving to exact target pixel (" foundX ", " foundY ").")
 		DllCall("SetCursorPos", "int", foundX, "int", foundY)
 		Sleep 100
@@ -653,12 +642,6 @@ UpdateCountdown() {
 	CountdownText.Text := Format("{} seconds remaining", Ceil(remaining / 1000))
 }
 
-TestWebhook(*) {
-	SaveSettings()
-	if SendWebhook("Webhook test from Roblox Mining Macro.")
-		AddDebug("Webhook test sent successfully.")
-}
-
 ReloadScript(*) {
 	SaveSettings()
 	; Stop timers and release the mouse first so it isn't left held down.
@@ -680,43 +663,10 @@ HandleClose(*) {
 }
 
 SaveSettings() {
-	global SettingsFile, UserIdEdit, WebhookEdit, FirstPersonCheck, DigDownCheck, CycleEdit
-	IniWrite(UserIdEdit.Value, SettingsFile, "Webhook", "UserId")
-	IniWrite(WebhookEdit.Value, SettingsFile, "Webhook", "Url")
+	global SettingsFile, FirstPersonCheck, DigDownCheck, CycleEdit
 	IniWrite(FirstPersonCheck.Value, SettingsFile, "Options", "FirstPerson")
 	IniWrite(DigDownCheck.Value, SettingsFile, "Options", "DigDownOnly")
 	IniWrite(CycleEdit.Value, SettingsFile, "Options", "CycleSeconds")
-}
-
-SendWebhook(message) {
-	global WebhookEdit, UserIdEdit
-	webhookUrl := Trim(WebhookEdit.Value)
-	if webhookUrl = ""
-		return false
-
-	mention := Trim(UserIdEdit.Value)
-	if mention != ""
-		message := "<@" mention "> " message
-
-	payload := "{" . Chr(34) . "content" . Chr(34) . ":" . Chr(34) . JsonEscape(message) . Chr(34) . "}"
-	try {
-		http := ComObject("WinHttp.WinHttpRequest.5.1")
-		http.Open("POST", webhookUrl, false)
-		http.SetTimeouts(3000, 3000, 3000, 3000)
-		http.SetRequestHeader("Content-Type", "application/json")
-		http.Send(payload)
-		return http.Status >= 200 && http.Status < 300
-	} catch Error as err {
-		AddDebug("Webhook error: " err.Message)
-		return false
-	}
-}
-
-JsonEscape(value) {
-	value := StrReplace(value, Chr(92), Chr(92) Chr(92))
-	value := StrReplace(value, Chr(34), Chr(92) Chr(34))
-	value := StrReplace(value, "`r", "\r")
-	return StrReplace(value, "`n", "\n")
 }
 
 ; First person: steer the camera until the ore sits on the crosshair (screen center).
