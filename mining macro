@@ -109,7 +109,7 @@ if !IsInteger(SavedCycleSeconds)
 	SavedCycleSeconds := 30
 SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
 
-global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.2.0")
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.2.1")
 GuiMain.SetFont("s10", "Segoe UI")
 GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
 GuiMain.AddText("xm y+10 w90", "Roblox window:")
@@ -304,11 +304,9 @@ ScanAndAct() {
 	global Config, DetectionText
 	if !Config.running || Config.recalibrating
 		return
-	if !WinActive("ahk_exe RobloxPlayerBeta.exe") {
-		StopMacro()
-		UpdateStatus("Stopped - Roblox lost focus")
+	; If Roblox lost focus, pull it back and keep going (skip this tick if that fails).
+	if !EnsureRoblox()
 		return
-	}
 
 	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
 	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
@@ -546,12 +544,27 @@ MoveRandomOffset() {
 		JitterClick(currentX + 50, currentY)
 }
 
-; End-of-cycle recalibration. Runs when the 30s cycle ends, or when the same
-; color is detected repeatLimit times in the same spot.
+; Safe wrapper around the end-of-cycle recalibration. If anything throws inside the
+; recalibration, the "recalibrating" flag is always cleared so the macro can't get
+; stuck doing nothing, and the error is written to the debug log.
 Recalibrate(keys := "") {
-	global Config, CountdownText
+	global Config
 	if Config.recalibrating
 		return
+	try {
+		RecalibrateInner(keys)
+	} catch Error as err {
+		AddDebug("Recalibrate error: " err.Message " (line " err.Line ")")
+		Config.cycleStarted := A_TickCount
+		Config.cycleActive := true
+	}
+	Config.recalibrating := false
+}
+
+; End-of-cycle recalibration. Runs when the 30s cycle ends, or when the same
+; color is detected repeatLimit times in the same spot.
+RecalibrateInner(keys := "") {
+	global Config, CountdownText
 	if !IsObject(keys)
 		keys := Config.preRecalKeys
 	Config.recalibrating := true
@@ -624,11 +637,9 @@ UpdateCountdown() {
 		CountdownText.Text := "Idle"
 		return
 	}
-	if !WinActive("ahk_exe RobloxPlayerBeta.exe") {
-		StopMacro()
-		UpdateStatus("Stopped - Roblox lost focus")
+	; If Roblox lost focus, pull it back and keep going (skip this tick if that fails).
+	if !EnsureRoblox()
 		return
-	}
 
 	KeepRobloxMaximized()
 	elapsed := A_TickCount - Config.cycleStarted
@@ -916,6 +927,28 @@ GreyHeldLongEnough(&foundX, &foundY) {
 	return now - Config.greySince >= Config.recalColorHoldMs
 }
 
+; Makes sure Roblox is the active window. If it lost focus, bring it back instead of
+; stopping the macro. Returns false only if Roblox is closed or could not be re-focused
+; (the caller then just skips that tick and tries again on the next one).
+EnsureRoblox() {
+	global Config
+	if WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return true
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe")
+		return false
+	try WinActivate("ahk_exe RobloxPlayerBeta.exe")
+	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 1)
+		return false
+	AddDebug("Roblox lost focus; focus regained.")
+	; The mouse button may have been released while focus was elsewhere, so re-press it.
+	if Config.holding {
+		Click "Up"
+		Sleep 50
+		Click "Down"
+	}
+	return true
+}
+
 ; Bring Roblox to the front and make sure its window is maximized (windowed, with the title
 ; bar and taskbar still showing) so the fixed screen coordinates line up. Returns false if
 ; Roblox is not running or could not be focused.
@@ -1004,9 +1037,16 @@ UpdateStatus(message) {
 	WindowText.Text := WinActive("ahk_exe RobloxPlayerBeta.exe") ? "Roblox active" : "Roblox inactive"
 }
 
+; Keeps only the last 150 log lines so the debug box can't grow forever and slow the macro down.
 AddDebug(message) {
 	global DebugEdit
-	stamp := FormatTime(, "HH:mm:ss")
-	DebugEdit.Value := DebugEdit.Value stamp "  " message "`r`n"
+	static lines := []
+	lines.Push(FormatTime(, "HH:mm:ss") "  " message)
+	if lines.Length > 150
+		lines.RemoveAt(1)
+	text := ""
+	for line in lines
+		text .= line "`r`n"
+	DebugEdit.Value := text
 	SendMessage 0x115, 7, 0, DebugEdit
 }
