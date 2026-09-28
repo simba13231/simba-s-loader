@@ -95,6 +95,10 @@ global Config := {
 	centerX: 960,
 	centerY: 540,
 	lookedDown: false,
+	lookedUp: false,
+	lookUpCounts: 900,
+	noOreLookDownMs: 3000,
+	noOreSince: 0,
 	periodicColor: 0x7AF50C,
 	periodicVariation: 0,
 	periodicLeft: 809,
@@ -206,6 +210,8 @@ StartMacro() {
 		AddDebug("Warning: screen is " A_ScreenWidth "x" A_ScreenHeight ". The positions in this macro are set for 1920x1080.")
 	Config.repeatCount := 0
 	Config.recalibrating := false
+	Config.noOreSince := 0
+	Config.lookedUp := false
 	StartButton.Enabled := false
 	StopButton.Enabled := true
 	UpdateStatus("Focusing Roblox")
@@ -409,17 +415,31 @@ ScanAndAct() {
 	Config.repeatCount := 0
 	DetectionText.Text := "No target color found"
 	if Config.firstPerson {
-		; No ore in view: stop jiggling and walking, keep holding the mouse and look back down.
+		; No ore in view: stop jiggling and walking, keep holding the mouse.
+		; Look up first; if there is still no ore after noOreLookDownMs, look down.
 		StopJiggle()
 		StopWalk()
 		Config.holdColor := ""
 		Config.aimRepeatCount := 0
-		if !Config.lookedDown {
-			AddDebug("No ore in view; looking down.")
-			LookDown()
-			Config.lookedDown := true
+		if Config.noOreSince = 0
+			Config.noOreSince := A_TickCount
+		if (A_TickCount - Config.noOreSince) < Config.noOreLookDownMs {
+			if !Config.lookedUp {
+				AddDebug("No ore in view; looking up.")
+				LookUp()
+				Config.lookedUp := true
+				Config.lookedDown := false
+			}
+			UpdateStatus("Scanning - looking up")
+		} else {
+			if !Config.lookedDown {
+				AddDebug("No ore for " Round(Config.noOreLookDownMs / 1000) " s; looking down.")
+				LookDown()
+				Config.lookedDown := true
+				Config.lookedUp := false
+			}
+			UpdateStatus("Scanning - looking down")
 		}
-		UpdateStatus("Scanning - looking down")
 		return
 	}
 	if Config.holding && !Config.fallbackActive {
@@ -571,6 +591,8 @@ RecalibrateInner(keys := "") {
 	if !IsObject(keys)
 		keys := Config.preRecalKeys
 	Config.recalibrating := true
+	Config.noOreSince := 0
+	Config.lookedUp := false
 	; First person: stop jiggling/walking and let go of the mouse button before the menu clicks.
 	StopJiggle()
 	StopWalk()
@@ -691,6 +713,8 @@ SaveSettings() {
 AimAtOre(foundColor, foundX, foundY) {
 	global Config, DetectionText
 	Config.lookedDown := false
+	Config.lookedUp := false
+	Config.noOreSince := 0
 	Config.fallbackActive := false
 	DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
 	Config.lastColor := foundColor
@@ -898,6 +922,15 @@ MoveCamera(dx, dy) {
 LookDown() {
 	global Config
 	MoveCamera(0, Config.lookDownCounts)
+}
+
+; Looks up to a fixed angle: snap fully down first (a known starting point), then tilt up
+; by lookUpCounts. Raise lookUpCounts to look higher, lower it to look less high.
+LookUp() {
+	global Config
+	MoveCamera(0, Config.lookDownCounts)
+	Sleep 30
+	MoveCamera(0, -Config.lookUpCounts)
 }
 
 ; The crosshair is the center of the Roblox window, not always the center of the screen.
