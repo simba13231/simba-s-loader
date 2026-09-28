@@ -1,0 +1,1036 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+#UseHook
+#MaxThreadsPerHotkey 1
+DllCall("SetProcessDpiAwarenessContext", "ptr", -4, "ptr")
+CoordMode "Pixel", "Screen"
+CoordMode "Mouse", "Screen"
+SetMouseDelay 0
+SetDefaultMouseSpeed 1
+
+global Config := {
+	colors: [0xF4DEFF, 0xD179F5, 0xFFFD6E],
+	colorVariation: 0,
+	scanLeft: 375,
+	scanTop: 222,
+	scanRight: 1750,
+	scanBottom: 860,
+	tpScanLeft: 375,
+	tpScanTop: 222,
+	tpScanRight: 1750,
+	tpScanBottom: 860,
+	fpScanLeft: 350,
+	fpScanTop: 125,
+	fpScanRight: 1905,
+	fpScanBottom: 865,
+	excludeLeft: 800,
+	excludeTop: 300,
+	excludeRight: 1125,
+	excludeBottom: 660,
+	pollMs: 100,
+	holdMs: 30000,
+	fallbackX: 950,
+	fallbackY: 550,
+	status: "Stopped",
+	running: false,
+	holding: false,
+	fallbackActive: false,
+	cycleActive: false,
+	awaitingFallback: false,
+	cycleStarted: 0,
+	lastColor: "None",
+	lastPoint: "None",
+	repeatLimit: 5,
+	repeatRadius: 20,
+	repeatCount: 0,
+	repeatColor: "",
+	repeatX: 0,
+	repeatY: 0,
+	aimRepeatLimit: 40,
+	aimRepeatRadius: 400,
+	aimRepeatCount: 0,
+	aimRepeatColor: "",
+	aimRepeatX: 0,
+	aimRepeatY: 0,
+	recalibrating: false,
+	preRecalKeys: ["1", "2"],
+	preRecalKeyDelayMs: 300,
+	greyRecalKeys: ["3"],
+	recalColor: 0x1E2A2D,
+	recalColorVariation: 7,
+	recalColorCooldownMs: 30000,
+	recalColorHoldMs: 5000,
+	recalColorGapMs: 2000,
+	recalLeft: 900,
+	recalTop: 500,
+	recalRight: 1010,
+	recalBottom: 570,
+	greySince: 0,
+	greyLastSeen: 0,
+	lastGreyTick: -1000000,
+	firstPerson: false,
+	digDownOnly: false,
+	camGain: 1,
+	aimTolerance: 12,
+	aimMaxSteps: 15,
+	aimStepDelayMs: 50,
+	aimOffsetX: 0,
+	aimOffsetY: 0,
+	lookDownCounts: 2500,
+	lookDownAfterMs: 6000,
+	lookDownPauseMs: 1500,
+	aimPausedUntil: 0,
+	jiggleAmount: 25,
+	jiggleMs: 50,
+	jiggleOffset: 0,
+	jiggling: false,
+	walkKey: "w",
+	walking: false,
+	aiming: false,
+	holdColor: "",
+	holdSince: 0,
+	holdLookedDown: false,
+	centerX: 960,
+	centerY: 540,
+	lookedDown: false,
+	periodicColor: 0x7AF50C,
+	periodicVariation: 0,
+	periodicLeft: 809,
+	periodicTop: 655,
+	periodicRight: 1108,
+	periodicBottom: 760,
+	periodicIntervalMs: 30000
+}
+global SettingsFile := A_ScriptDir "\mining macro-settings.ini"
+global SavedFirstPerson := IniRead(SettingsFile, "Options", "FirstPerson", "0")
+global SavedDigDownOnly := IniRead(SettingsFile, "Options", "DigDownOnly", "0")
+global SavedCycleSeconds := IniRead(SettingsFile, "Options", "CycleSeconds", "30")
+if !IsInteger(SavedCycleSeconds)
+	SavedCycleSeconds := 30
+SavedCycleSeconds := Min(180, Max(15, Integer(SavedCycleSeconds)))
+
+global GuiMain := Gui("+AlwaysOnTop", "Roblox Mining Macro V 1.3.0")
+GuiMain.SetFont("s10", "Segoe UI")
+GuiMain.AddText("w360 Section", "Roblox Mining Macro, Made by @miou2251")
+GuiMain.AddText("xm y+10 w90", "Roblox window:")
+global WindowText := GuiMain.AddText("x+5 yp w265", "Not checked")
+GuiMain.AddText("xm y+10 w90", "Status:")
+global StatusText := GuiMain.AddText("x+5 yp w265", "Stopped")
+GuiMain.AddText("xm y+10 w90", "Detection:")
+global DetectionText := GuiMain.AddText("x+5 yp w265", "No scan yet")
+GuiMain.AddText("xm y+10 w90", "Countdown:")
+global CountdownText := GuiMain.AddText("x+5 yp w265", "Idle")
+
+GuiMain.AddText("xm y+18 w360", "Fallback click point: (950, 550)")
+
+GuiMain.AddText("xm y+15 w110", "Recalibrate every")
+global CycleEdit := GuiMain.AddEdit("x+5 yp-3 w60 Number", SavedCycleSeconds)
+GuiMain.AddUpDown("Range15-180", SavedCycleSeconds)
+GuiMain.AddText("x+8 yp+3 w150", "seconds (15 to 180)")
+global FirstPersonCheck := GuiMain.AddCheckbox("xm y+15 w360" . (SavedFirstPerson = "1" ? " Checked" : ""), "First person mode (faster)")
+global DigDownCheck := GuiMain.AddCheckbox("xm y+4 w360" . (SavedDigDownOnly = "1" ? " Checked" : ""), "Dig down only (better for afk)")
+DigDownCheck.OnEvent("Click", UpdateDigDownState)
+UpdateDigDownState()
+global StartButton := GuiMain.AddButton("xm y+12 w115", "F6   Start")
+StartButton.OnEvent("Click", ToggleMacro)
+global StopButton := GuiMain.AddButton("x+8 yp w115 Disabled", "F7   Stop")
+StopButton.OnEvent("Click", StopMacro)
+global ReloadButton := GuiMain.AddButton("x+8 yp w115", "F5   Reload")
+ReloadButton.OnEvent("Click", ReloadScript)
+GuiMain.AddText("xm y+10 w360", "Debug log")
+global DebugEdit := GuiMain.AddEdit("xm y+5 w360 r8 ReadOnly -Wrap", "Ready.`r`n")
+GuiMain.OnEvent("Close", HandleClose)
+GuiMain.Show()
+FocusRoblox()
+
+$F5:: {
+	ReloadScript()
+}
+$F6:: {
+	ToggleMacro()
+}
+$F7:: {
+	EmergencyStop()
+}
+
+; Dig down only has no aiming, so first-person camera-aim mode doesn't apply.
+; Grey it out while dig-down is checked to avoid confusion; restore it otherwise.
+UpdateDigDownState(*) {
+	global FirstPersonCheck, DigDownCheck
+	FirstPersonCheck.Enabled := !DigDownCheck.Value
+}
+
+ToggleMacro(*) {
+	global Config
+	if Config.running {
+		StopMacro()
+	} else {
+		StartMacro()
+	}
+}
+
+StartMacro() {
+	global Config, StartButton, StopButton, FirstPersonCheck, DigDownCheck
+	SaveSettings()
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
+		UpdateStatus("Roblox is not running")
+		AddDebug("Start cancelled: RobloxPlayerBeta.exe was not found.")
+		return
+	}
+
+	Config.running := true
+	Config.status := "Starting"
+	Config.digDownOnly := (DigDownCheck.Value = 1)
+	Config.firstPerson := Config.digDownOnly ? true : (FirstPersonCheck.Value = 1)
+	if Config.firstPerson {
+		Config.scanLeft := Config.fpScanLeft
+		Config.scanTop := Config.fpScanTop
+		Config.scanRight := Config.fpScanRight
+		Config.scanBottom := Config.fpScanBottom
+	} else {
+		Config.scanLeft := Config.tpScanLeft
+		Config.scanTop := Config.tpScanTop
+		Config.scanRight := Config.tpScanRight
+		Config.scanBottom := Config.tpScanBottom
+	}
+	FirstPersonCheck.Enabled := false
+	DigDownCheck.Enabled := false
+	AddDebug("Recalibrating every " ApplyCycleSetting() " seconds.")
+	if Config.digDownOnly
+		AddDebug("Dig-down-only mode: ore detection disabled, mining straight down.")
+	else
+		AddDebug(Config.firstPerson ? "First person mode on." : "Third person mode.")
+	if A_ScreenWidth != 1920 || A_ScreenHeight != 1080
+		AddDebug("Warning: screen is " A_ScreenWidth "x" A_ScreenHeight ". The positions in this macro are set for 1920x1080.")
+	Config.repeatCount := 0
+	Config.recalibrating := false
+	StartButton.Enabled := false
+	StopButton.Enabled := true
+	UpdateStatus("Focusing Roblox")
+	AddDebug("Starting macro at fixed fallback point (950, 550).")
+	if !FocusRoblox() {
+		StopMacro()
+		UpdateStatus("Could not focus Roblox")
+		return
+	}
+
+	; Reset the camera view once when a run begins.
+	Send("{WheelUp 30}")
+	Sleep 150
+	Config.cycleActive := true
+	Config.cycleStarted := A_TickCount
+	Config.holding := true
+	if Config.firstPerson {
+		; Fully zoomed in is first person. Look straight down and hold the mouse button.
+		UpdateCenter()
+		Config.holdColor := ""
+		Config.aimPausedUntil := 0
+		LookDown()
+		Config.lookedDown := true
+		Config.fallbackActive := false
+		Click "Down"
+	} else {
+		Send("{WheelDown 12}")
+		Config.fallbackActive := true
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		SetTimer FallbackClick, 500
+	}
+	UpdateStatus(Config.digDownOnly ? "Digging down" : "Scanning")
+	SetTimer ScanAndAct, Config.pollMs
+	SetTimer UpdateCountdown, 250
+	SetTimer PeriodicColorCheck, Config.periodicIntervalMs
+	ScanAndAct()
+}
+
+StopMacro(*) {
+	global Config, StartButton, StopButton, CountdownText, DigDownCheck
+	SetTimer ScanAndAct, 0
+	SetTimer UpdateCountdown, 0
+	SetTimer FallbackClick, 0
+	SetTimer PeriodicColorCheck, 0
+	Config.running := false
+	Config.cycleActive := false
+	Config.awaitingFallback := false
+	Config.recalibrating := false
+	Config.repeatCount := 0
+	Config.status := "Stopped"
+	if Config.holding {
+		Click "Up"
+		Config.holding := false
+	}
+	StartButton.Enabled := true
+	StopButton.Enabled := false
+	UpdateStatus("Stopped")
+	CountdownText.Text := "Idle"
+	StopJiggle()
+	StopWalk()
+	DigDownCheck.Enabled := true
+	UpdateDigDownState()
+	AddDebug("Macro stopped and mouse released.")
+}
+
+EmergencyStop(*) {
+	global Config, StartButton, StopButton, CountdownText, DigDownCheck
+	SetTimer ScanAndAct, 0
+	SetTimer UpdateCountdown, 0
+	SetTimer FallbackClick, 0
+	SetTimer PeriodicColorCheck, 0
+	Config.running := false
+	Config.cycleActive := false
+	Config.awaitingFallback := false
+	Config.recalibrating := false
+	Config.repeatCount := 0
+	if Config.holding {
+		Click "Up"
+		Config.holding := false
+	}
+	StartButton.Enabled := true
+	StopButton.Enabled := false
+	CountdownText.Text := "Idle"
+	UpdateStatus("Stopped")
+	StopJiggle()
+	StopWalk()
+	DigDownCheck.Enabled := true
+	UpdateDigDownState()
+	AddDebug("Emergency stop: timers cancelled and mouse released.")
+}
+
+ScanAndAct() {
+	global Config, DetectionText
+	if !Config.running || Config.recalibrating
+		return
+	; If Roblox lost focus, pull it back and keep going (skip this tick if that fails).
+	if !EnsureRoblox()
+		return
+
+	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
+	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
+	if scanRight < Config.scanLeft || scanBottom < Config.scanTop {
+		AddDebug("Scan box is outside the current screen size.")
+		StopMacro()
+		return
+	}
+
+	; Special color that means "recalibrate now" (after it has been seen for a few seconds).
+	trigX := 0
+	trigY := 0
+	if GreyHeldLongEnough(&trigX, &trigY) {
+		AddDebug("Recalibration color #" Format("{:06X}", Config.recalColor) " seen for " Round(Config.recalColorHoldMs / 1000) " s at (" trigX ", " trigY "); recalibrating.")
+		Config.lastGreyTick := A_TickCount
+		Recalibrate(Config.greyRecalKeys)
+		return
+	}
+
+	; Dig-down-only: no ore detection at all. Keep looking down and holding
+	; the mouse button; the grey check above and the cycle timer still drive
+	; recalibration as usual.
+	if Config.digDownOnly {
+		DetectionText.Text := "Dig-down only"
+		if !Config.lookedDown {
+			LookDown()
+			Config.lookedDown := true
+		}
+		if !Config.holding {
+			Click "Down"
+			Config.holding := true
+		}
+		UpdateStatus("Digging down")
+		return
+	}
+
+	foundColor := ""
+	foundX := 0
+	foundY := 0
+	for index, color in Config.colors {
+		try {
+			if FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+				foundColor := Format("{:06X}", color)
+				break
+			}
+		} catch Error as err {
+			AddDebug("Pixel scan error: " err.Message)
+			return
+		}
+	}
+
+	if foundColor != "" {
+		if Config.firstPerson {
+			AimAtOre(foundColor, foundX, foundY)
+			return
+		}
+		; Same color again at (roughly) the same spot? Too many in a row means we're stuck.
+		if TrackRepeat(foundColor, foundX, foundY) {
+			DetectionText.Text := "Repeat #" foundColor " at (" foundX ", " foundY ")"
+			AddDebug("Color #" foundColor " detected " Config.repeatLimit " times within " Config.repeatRadius " px of (" Config.repeatX ", " Config.repeatY "); recalibrating.")
+			Recalibrate()
+			return
+		}
+
+		SetTimer FallbackClick, 0
+		Config.fallbackActive := false
+		DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
+		Config.lastColor := foundColor
+		Config.lastPoint := foundX ", " foundY
+		wasHolding := Config.holding
+		if wasHolding {
+			Click "Up"
+			Config.holding := false
+		}
+		Config.awaitingFallback := false
+		UpdateStatus("Color found - clicking target")
+		AddDebug("Moving to exact target pixel (" foundX ", " foundY ").")
+		DllCall("SetCursorPos", "int", foundX, "int", foundY)
+		Sleep 100
+		MouseGetPos &actualX, &actualY
+		AddDebug("Cursor position after move: (" actualX ", " actualY ").")
+		JitterClick(foundX, foundY, "down")
+		AddDebug("Holding target pixel for 1000 ms.")
+		Sleep 1000
+		JitterClick(foundX, foundY, "up")
+		AddDebug("Target pixel hold completed at (" foundX ", " foundY ").")
+		MoveRandomOffset()
+		Config.awaitingFallback := true
+		AddDebug("Waiting 100 ms to confirm whether the color remains.")
+		Sleep 100
+		if Config.running
+			ScanAndAct()
+		return
+	}
+
+	; Nothing found, so the repeat streak is broken.
+	Config.repeatCount := 0
+	DetectionText.Text := "No target color found"
+	if Config.firstPerson {
+		; No ore in view: stop jiggling and walking, keep holding the mouse and look back down.
+		StopJiggle()
+		StopWalk()
+		Config.holdColor := ""
+		Config.aimRepeatCount := 0
+		if !Config.lookedDown {
+			AddDebug("No ore in view; looking down.")
+			LookDown()
+			Config.lookedDown := true
+		}
+		UpdateStatus("Scanning - looking down")
+		return
+	}
+	if Config.holding && !Config.fallbackActive {
+		Click "Up"
+		Config.holding := false
+		AddDebug("Color lost; returning to fallback pixel (950, 550).")
+	}
+	DllCall("SetCursorPos", "int", Config.fallbackX, "int", Config.fallbackY)
+	if Config.awaitingFallback {
+		Config.awaitingFallback := false
+		Config.fallbackActive := true
+		Config.holding := true
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		SetTimer FallbackClick, 250
+		AddDebug("No color found; fallback hold started.")
+	}
+	UpdateStatus("Scanning - fallback")
+}
+
+; Counts consecutive detections of the same color within repeatRadius pixels of
+; the first hit in the streak. Returns true once repeatLimit is reached.
+TrackRepeat(color, x, y) {
+	global Config
+	dx := x - Config.repeatX
+	dy := y - Config.repeatY
+	if Config.repeatCount > 0 && color = Config.repeatColor && (dx * dx + dy * dy) <= Config.repeatRadius ** 2 {
+		Config.repeatCount += 1
+	} else {
+		Config.repeatCount := 1
+		Config.repeatColor := color
+		Config.repeatX := x
+		Config.repeatY := y
+	}
+	return Config.repeatCount >= Config.repeatLimit
+}
+
+; Same as TrackRepeat, but a separate counter for first-person aiming: counts consecutive
+; detections of the same color within aimRepeatRadius pixels of the first hit in the streak.
+; Returns true (and resets the count) once aimRepeatLimit is reached.
+TrackAimRepeat(color, x, y) {
+	global Config
+	dx := x - Config.aimRepeatX
+	dy := y - Config.aimRepeatY
+	if Config.aimRepeatCount > 0 && color = Config.aimRepeatColor && (dx * dx + dy * dy) <= Config.aimRepeatRadius ** 2 {
+		Config.aimRepeatCount += 1
+	} else {
+		Config.aimRepeatCount := 1
+		Config.aimRepeatColor := color
+		Config.aimRepeatX := x
+		Config.aimRepeatY := y
+	}
+	if Config.aimRepeatCount >= Config.aimRepeatLimit {
+		Config.aimRepeatCount := 0
+		return true
+	}
+	return false
+}
+
+FallbackClick() {
+	global Config
+	if !Config.running || !Config.fallbackActive || !WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return
+	MouseMove 2, 0, 1, "R"
+	MouseMove -2, 0, 1, "R"
+}
+
+; Every periodicIntervalMs, checks a fixed region for a specific color.
+; If found, taps F twice with a 100ms gap.
+PeriodicColorCheck() {
+	global Config
+	if !Config.running || Config.recalibrating
+		return
+	if !WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return
+	right := Min(Config.periodicRight, A_ScreenWidth - 1)
+	bottom := Min(Config.periodicBottom, A_ScreenHeight - 1)
+	foundX := 0
+	foundY := 0
+	found := false
+	try {
+		found := PixelSearch(&foundX, &foundY, Config.periodicLeft, Config.periodicTop, right, bottom, Config.periodicColor, Config.periodicVariation)
+	} catch Error as err {
+		AddDebug("Periodic color check error: " err.Message)
+		return
+	}
+	if found {
+		AddDebug("Periodic check found color #" Format("{:06X}", Config.periodicColor) " at (" foundX ", " foundY "); pressing F twice.")
+		Send("{f}")
+		Sleep 100
+		Send("{f}")
+	}
+}
+
+FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+	global Config
+	variation := Config.colorVariation
+
+	; First person: no character in view, so search the whole scan box.
+	if Config.firstPerson
+		return PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, scanRight, scanBottom, color, variation)
+
+	; Search the four regions surrounding the ignored hat rectangle.
+	if PixelSearch(&foundX, &foundY, Config.scanLeft, Config.scanTop, Config.excludeLeft - 1, scanBottom, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeRight + 1, Config.scanTop, scanRight, scanBottom, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.scanTop, Config.excludeRight, Config.excludeTop - 1, color, variation)
+		return true
+	if PixelSearch(&foundX, &foundY, Config.excludeLeft, Config.excludeBottom + 1, Config.excludeRight, scanBottom, color, variation)
+		return true
+	return false
+}
+
+MoveRandomOffset() {
+	MouseGetPos &currentX, &currentY
+	direction := Random(1, 4)
+	if direction = 1
+		JitterClick(currentX, currentY - 50)
+	else if direction = 2
+		JitterClick(currentX, currentY + 50)
+	else if direction = 3
+		JitterClick(currentX - 50, currentY)
+	else
+		JitterClick(currentX + 50, currentY)
+}
+
+; Safe wrapper around the end-of-cycle recalibration. If anything throws inside the
+; recalibration, the "recalibrating" flag is always cleared so the macro can't get
+; stuck doing nothing, and the error is written to the debug log.
+Recalibrate(keys := "") {
+	global Config
+	if Config.recalibrating
+		return
+	try {
+		RecalibrateInner(keys)
+	} catch Error as err {
+		AddDebug("Recalibrate error: " err.Message " (line " err.Line ")")
+		Config.cycleStarted := A_TickCount
+		Config.cycleActive := true
+	}
+	Config.recalibrating := false
+}
+
+; End-of-cycle recalibration. Runs when the 30s cycle ends, or when the same
+; color is detected repeatLimit times in the same spot.
+RecalibrateInner(keys := "") {
+	global Config, CountdownText
+	if !IsObject(keys)
+		keys := Config.preRecalKeys
+	Config.recalibrating := true
+	; First person: stop jiggling/walking and let go of the mouse button before the menu clicks.
+	StopJiggle()
+	StopWalk()
+	if Config.firstPerson && Config.holding
+		Click "Up"
+	SetTimer FallbackClick, 0
+	Config.fallbackActive := false
+	Config.holding := false
+	Config.cycleActive := false
+	Config.awaitingFallback := false
+	Config.repeatCount := 0
+	CountdownText.Text := "Finishing..."
+	UpdateStatus("Finishing actions")
+	AddDebug("Pressing keys before recalibrating.")
+	for key in keys {
+		PressKey(key)
+		Sleep Config.preRecalKeyDelayMs
+		if !Config.running
+			return
+	}
+	if Config.firstPerson {
+		; Zoom out of first person so the mouse cursor is free for the menu clicks.
+		Send("{WheelDown 3}")
+		Sleep 400
+	}
+	AddDebug("Performing end-of-cycle clicks.")
+	JitterClick(960, 100)
+	Sleep 1000
+	if !Config.running
+		return
+	JitterClick(190, 500)
+	Sleep 500
+	if !Config.running
+		return
+	JitterClick(190, 500)
+	UpdateStatus(Config.digDownOnly ? "Digging down" : "Scanning")
+	ApplyCycleSetting()
+	Config.cycleStarted := A_TickCount
+	Config.cycleActive := true
+	Config.holding := true
+	if Config.firstPerson {
+		; Put the cursor back on the fallback pixel (so the scroll wheel reaches the game and
+		; not the menu), then restart the mining sequence: zoom in, look down, hold the mouse.
+		JitterClick(Config.fallbackX, Config.fallbackY, "move")
+		Sleep 200
+		Send("{WheelUp 30}")
+		Sleep 300
+		Config.holdColor := ""
+		Config.aimPausedUntil := 0
+		LookDown()
+		Config.lookedDown := true
+		Config.fallbackActive := false
+		Click "Down"
+	} else {
+		Config.fallbackActive := true
+		JitterClick(Config.fallbackX, Config.fallbackY, "down")
+		SetTimer FallbackClick, 500
+	}
+	Config.recalibrating := false
+	ScanAndAct()
+}
+
+UpdateCountdown() {
+	global Config, CountdownText
+	if Config.recalibrating
+		return
+	if !Config.running || !Config.cycleActive {
+		CountdownText.Text := "Idle"
+		return
+	}
+	; If Roblox lost focus, pull it back and keep going (skip this tick if that fails).
+	if !EnsureRoblox()
+		return
+
+	KeepRobloxMaximized()
+	elapsed := A_TickCount - Config.cycleStarted
+	remaining := Config.holdMs - elapsed
+	if remaining <= 0 {
+		AddDebug(Round(Config.holdMs / 1000) " seconds elapsed; recalibrating.")
+		Recalibrate()
+		return
+	}
+
+	CountdownText.Text := Format("{} seconds remaining", Ceil(remaining / 1000))
+}
+
+ReloadScript(*) {
+	SaveSettings()
+	; Stop timers and release the mouse first so it isn't left held down.
+	EmergencyStop()
+	; The launcher passes its own path as the first argument; run it again and close this copy.
+	if A_Args.Length >= 1 && FileExist(A_Args[1]) {
+		AddDebug("Restarting through the launcher...")
+		Run('"' A_AhkPath '" "' A_Args[1] '"')
+		ExitApp()
+	}
+	; Started without the launcher: just reload this file.
+	AddDebug("No launcher path given; reloading this file.")
+	Reload()
+}
+
+HandleClose(*) {
+	SaveSettings()
+	ExitApp()
+}
+
+SaveSettings() {
+	global SettingsFile, FirstPersonCheck, DigDownCheck, CycleEdit
+	IniWrite(FirstPersonCheck.Value, SettingsFile, "Options", "FirstPerson")
+	IniWrite(DigDownCheck.Value, SettingsFile, "Options", "DigDownOnly")
+	IniWrite(CycleEdit.Value, SettingsFile, "Options", "CycleSeconds")
+}
+
+; First person: steer the camera until the ore sits on the crosshair (screen center).
+; The mouse button stays held the whole time, so the ore is mined once it lines up.
+; While an ore is in view the walk key (W) is held; it is released when no ore is seen.
+AimAtOre(foundColor, foundX, foundY) {
+	global Config, DetectionText
+	Config.lookedDown := false
+	Config.fallbackActive := false
+	DetectionText.Text := "Found #" foundColor " at (" foundX ", " foundY ")"
+	Config.lastColor := foundColor
+	Config.lastPoint := foundX ", " foundY
+	StartJiggle()
+	StartWalk()
+
+	; Same color detected too many times in a row near the same spot: stop trying to
+	; aim and just look down.
+	if TrackAimRepeat(foundColor, foundX, foundY) {
+		AddDebug("Color #" foundColor " detected " Config.aimRepeatLimit " times within " Config.aimRepeatRadius " px of (" Config.aimRepeatX ", " Config.aimRepeatY "); looking down.")
+		StopWalk()
+		LookDown()
+		Config.lookedDown := true
+		Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+		UpdateStatus("Mining down")
+		return
+	}
+
+	; Just looked down on purpose: keep mining downward instead of turning back to the ore.
+	if A_TickCount < Config.aimPausedUntil {
+		StopWalk()
+		UpdateStatus("Mining down")
+		return
+	}
+
+	UpdateStatus("Ore found - aiming camera")
+	Config.aiming := true
+	Loop Config.aimMaxSteps {
+		dx := foundX + Config.aimOffsetX - Config.centerX
+		dy := foundY + Config.aimOffsetY - Config.centerY
+		if Abs(dx) <= Config.aimTolerance && Abs(dy) <= Config.aimTolerance
+			break
+		stepX := Round(dx * Config.camGain)
+		stepY := Round(dy * Config.camGain)
+		if stepX = 0 && dx != 0
+			stepX := dx > 0 ? 1 : -1
+		if stepY = 0 && dy != 0
+			stepY := dy > 0 ? 1 : -1
+		MoveCamera(stepX, stepY)
+		Sleep Config.aimStepDelayMs
+		if !Config.running || Config.recalibrating {
+			Config.aiming := false
+			return
+		}
+		if !FindAnyTarget(&foundColor, &foundX, &foundY) {
+			Config.aiming := false
+			AddDebug("Ore left the view while aiming.")
+			return
+		}
+	}
+	Config.aiming := false
+
+	; Same color held for lookDownAfterMs: go for the block below - but only if no ore
+	; is still visible. If ore is still in view, stay on it instead of diving down.
+	if ColorHeldLongEnough(foundColor) {
+		stillOreColor := ""
+		stillOreX := 0
+		stillOreY := 0
+		if FindAnyTarget(&stillOreColor, &stillOreX, &stillOreY) {
+			; Ore still visible: re-arm the hold check and keep mining it instead of
+			; committing to a look-down.
+			Config.holdLookedDown := false
+		} else {
+			AddDebug("Color #" foundColor " held for " Config.lookDownAfterMs " ms; looking down.")
+			StopWalk()
+			LookDown()
+			Config.lookedDown := true
+			Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
+		}
+	}
+	UpdateStatus("Mining ore")
+}
+
+; Scans every target color and reports the first match.
+FindAnyTarget(&foundColor, &foundX, &foundY) {
+	global Config
+	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
+	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
+	for index, color in Config.colors {
+		try {
+			if FindTargetColor(&foundX, &foundY, color, scanRight, scanBottom) {
+				foundColor := Format("{:06X}", color)
+				return true
+			}
+		} catch Error as err {
+			AddDebug("Pixel scan error: " err.Message)
+			return false
+		}
+	}
+	foundColor := ""
+	return false
+}
+
+; True once the same color has been seen nonstop for lookDownAfterMs (once per streak).
+ColorHeldLongEnough(color) {
+	global Config
+	if Config.holdColor != color {
+		Config.holdColor := color
+		Config.holdSince := A_TickCount
+		Config.holdLookedDown := false
+	}
+	if !Config.holdLookedDown && (A_TickCount - Config.holdSince) >= Config.lookDownAfterMs {
+		Config.holdLookedDown := true
+		return true
+	}
+	return false
+}
+
+; First person: while an ore is in view, swing the camera back and forth
+; (jiggleAmount mouse counts every jiggleMs) so the crosshair keeps sweeping over it.
+StartJiggle() {
+	global Config
+	if Config.jiggling
+		return
+	Config.jiggling := true
+	SetTimer JiggleTick, Config.jiggleMs
+}
+
+StopJiggle() {
+	global Config
+	if !Config.jiggling
+		return
+	SetTimer JiggleTick, 0
+	Config.jiggling := false
+	; Put the camera back if we stopped halfway through a swing.
+	if Config.jiggleOffset != 0 {
+		MoveCamera(-Config.jiggleOffset, 0)
+		Config.jiggleOffset := 0
+	}
+}
+
+JiggleTick() {
+	global Config
+	if !Config.running || Config.recalibrating || Config.aiming
+		return
+	if Config.jiggleOffset = 0 {
+		MoveCamera(Config.jiggleAmount, 0)
+		Config.jiggleOffset := Config.jiggleAmount
+	} else {
+		MoveCamera(-Config.jiggleOffset, 0)
+		Config.jiggleOffset := 0
+	}
+}
+
+; Hold the walk key (W) while an ore is in view.
+StartWalk() {
+	global Config
+	if Config.walking
+		return
+	Config.walking := true
+	Send("{" Config.walkKey " down}")
+}
+
+; Release the walk key. Safe to call even when not walking.
+StopWalk() {
+	global Config
+	if !Config.walking
+		return
+	Config.walking := false
+	Send("{" Config.walkKey " up}")
+}
+
+; Relative mouse movement. With the mouse locked in first person this turns the camera.
+MoveCamera(dx, dy) {
+	while dx != 0 || dy != 0 {
+		stepX := Max(-100, Min(100, dx))
+		stepY := Max(-100, Min(100, dy))
+		DllCall("mouse_event", "UInt", 0x0001, "Int", stepX, "Int", stepY, "UInt", 0, "UPtr", 0)
+		dx -= stepX
+		dy -= stepY
+		if dx != 0 || dy != 0
+			Sleep 5
+	}
+}
+
+; Pitch is clamped by the game, so overshooting just leaves the camera looking straight down.
+LookDown() {
+	global Config
+	MoveCamera(0, Config.lookDownCounts)
+}
+
+; The crosshair is the center of the Roblox window, not always the center of the screen.
+UpdateCenter() {
+	global Config
+	try {
+		WinGetClientPos(&cx, &cy, &cw, &ch, "ahk_exe RobloxPlayerBeta.exe")
+		Config.centerX := cx + cw // 2
+		Config.centerY := cy + ch // 2
+	} catch {
+		Config.centerX := A_ScreenWidth // 2
+		Config.centerY := A_ScreenHeight // 2
+	}
+	AddDebug("Crosshair center: (" Config.centerX ", " Config.centerY ").")
+}
+
+; True once the grey has been seen nonstop for recalColorHoldMs. The timer resets as soon as
+; a scan does not find the grey, or if nothing was scanned for a while (like during a
+; recalibration). After it triggers, the grey is ignored for recalColorCooldownMs.
+GreyHeldLongEnough(&foundX, &foundY) {
+	global Config
+	now := A_TickCount
+	if now - Config.lastGreyTick < Config.recalColorCooldownMs {
+		Config.greySince := 0
+		return false
+	}
+	right := Min(Config.recalRight, A_ScreenWidth - 1)
+	bottom := Min(Config.recalBottom, A_ScreenHeight - 1)
+	found := false
+	try {
+		found := PixelSearch(&foundX, &foundY, Config.recalLeft, Config.recalTop, right, bottom, Config.recalColor, Config.recalColorVariation)
+	} catch {
+		found := false
+	}
+	if !found {
+		Config.greySince := 0
+		return false
+	}
+	; Grey seen: start the timer, or restart it if the last sighting was too long ago.
+	if Config.greySince = 0 || now - Config.greyLastSeen > Config.recalColorGapMs
+		Config.greySince := now
+	Config.greyLastSeen := now
+	return now - Config.greySince >= Config.recalColorHoldMs
+}
+
+; Makes sure Roblox is the active window. If it lost focus, bring it back instead of
+; stopping the macro. Returns false only if Roblox is closed or could not be re-focused
+; (the caller then just skips that tick and tries again on the next one).
+EnsureRoblox() {
+	global Config
+	if WinActive("ahk_exe RobloxPlayerBeta.exe")
+		return true
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe")
+		return false
+	try WinActivate("ahk_exe RobloxPlayerBeta.exe")
+	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 1)
+		return false
+	AddDebug("Roblox lost focus; focus regained.")
+	; The mouse button may have been released while focus was elsewhere, so re-press it.
+	if Config.holding {
+		Click "Up"
+		Sleep 50
+		Click "Down"
+	}
+	; Same for the walk key.
+	if Config.walking {
+		Send("{" Config.walkKey " up}")
+		Send("{" Config.walkKey " down}")
+	}
+	return true
+}
+
+; Bring Roblox to the front and make sure its window is maximized (windowed, with the title
+; bar and taskbar still showing) so the fixed screen coordinates line up. Returns false if
+; Roblox is not running or could not be focused.
+FocusRoblox() {
+	if !WinExist("ahk_exe RobloxPlayerBeta.exe") {
+		AddDebug("Roblox not found; open it first.")
+		return false
+	}
+	WinActivate("ahk_exe RobloxPlayerBeta.exe")
+	if !WinWaitActive("ahk_exe RobloxPlayerBeta.exe", , 2)
+		return false
+	if !RobloxIsBigEnough() {
+		WinMaximize("ahk_exe RobloxPlayerBeta.exe")
+		Sleep 300
+		AddDebug("Roblox window was small; maximized it.")
+	}
+	return true
+}
+
+; True if the Roblox window fills the screen (maximized or fullscreen).
+RobloxIsBigEnough() {
+	try {
+		WinGetClientPos(&cx, &cy, &cw, &ch, "ahk_exe RobloxPlayerBeta.exe")
+		return cw >= A_ScreenWidth - 20 && ch >= A_ScreenHeight - 120
+	} catch {
+		return false
+	}
+}
+
+; While running: if someone shrinks the Roblox window, maximize it again (at most every 3 s).
+KeepRobloxMaximized() {
+	global Config
+	static lastTry := 0
+	if RobloxIsBigEnough()
+		return
+	if A_TickCount - lastTry < 3000
+		return
+	lastTry := A_TickCount
+	WinMaximize("ahk_exe RobloxPlayerBeta.exe")
+	Sleep 300
+	if Config.firstPerson
+		UpdateCenter()
+	AddDebug("Roblox window was too small; maximized it again.")
+}
+
+; Reads the recalibration interval box, keeps it between 15 and 180 seconds, and applies it.
+ApplyCycleSetting() {
+	global Config, CycleEdit
+	seconds := IsInteger(CycleEdit.Value) ? Integer(CycleEdit.Value) : Config.holdMs // 1000
+	seconds := Min(180, Max(15, seconds))
+	CycleEdit.Value := seconds
+	Config.holdMs := seconds * 1000
+	return seconds
+}
+
+PressKey(key) {
+	Send("{" key " down}")
+	Sleep 50
+	Send("{" key " up}")
+}
+
+JitterClick(x, y, action := "click") {
+	DllCall("SetCursorPos", "int", x, "int", y)
+	Sleep 30
+	MouseMove 4, 0, 2, "R"
+	MouseMove -4, 0, 2, "R"
+	Sleep 10
+	if action = "move" {
+		return
+	} else if action = "down" {
+		Click "Down"
+	} else if action = "up" {
+		Click "Up"
+	} else {
+		Click "Down"
+		Sleep 20
+		Click "Up"
+		Sleep 30
+	}
+}
+
+UpdateStatus(message) {
+	global Config, StatusText, WindowText
+	Config.status := message
+	StatusText.Text := message
+	WindowText.Text := WinActive("ahk_exe RobloxPlayerBeta.exe") ? "Roblox active" : "Roblox inactive"
+}
+
+; Keeps only the last 150 log lines so the debug box can't grow forever and slow the macro down.
+AddDebug(message) {
+	global DebugEdit
+	static lines := []
+	lines.Push(FormatTime(, "HH:mm:ss") "  " message)
+	if lines.Length > 150
+		lines.RemoveAt(1)
+	text := ""
+	for line in lines
+		text .= line "`r`n"
+	DebugEdit.Value := text
+	SendMessage 0x115, 7, 0, DebugEdit
+}
