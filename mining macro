@@ -86,8 +86,10 @@ global Config := {
 	jiggling: false,
 	walkKey: "w",
 	walking: false,
-	leftKey: "Left",
-	leftHeld: false,
+	wanderMs: 5000,
+	wanderMin: 150,
+	wanderMax: 600,
+	wandering: false,
 	aiming: false,
 	holdColor: "",
 	holdSince: 0,
@@ -247,6 +249,7 @@ StartMacro() {
 	SetTimer ScanAndAct, Config.pollMs
 	SetTimer UpdateCountdown, 250
 	SetTimer PeriodicColorCheck, Config.periodicIntervalMs
+	SetTimer WanderTick, Config.wanderMs
 	ScanAndAct()
 }
 
@@ -272,7 +275,7 @@ StopMacro(*) {
 	CountdownText.Text := "Idle"
 	StopJiggle()
 	StopWalk()
-	StopLeft()
+	SetTimer WanderTick, 0
 	DigDownCheck.Enabled := true
 	UpdateDigDownState()
 	AddDebug("Macro stopped and mouse released.")
@@ -299,7 +302,7 @@ EmergencyStop(*) {
 	UpdateStatus("Stopped")
 	StopJiggle()
 	StopWalk()
-	StopLeft()
+	SetTimer WanderTick, 0
 	DigDownCheck.Enabled := true
 	UpdateDigDownState()
 	AddDebug("Emergency stop: timers cancelled and mouse released.")
@@ -312,9 +315,6 @@ ScanAndAct() {
 	; If Roblox lost focus, pull it back and keep going (skip this tick if that fails).
 	if !EnsureRoblox()
 		return
-
-	; Keep the left arrow held exactly while the mouse button is held.
-	SyncLeftKey()
 
 	scanRight := Min(Config.scanRight, A_ScreenWidth - 1)
 	scanBottom := Min(Config.scanBottom, A_ScreenHeight - 1)
@@ -388,7 +388,6 @@ ScanAndAct() {
 		if wasHolding {
 			Click "Up"
 			Config.holding := false
-			StopLeft()
 		}
 		Config.awaitingFallback := false
 		UpdateStatus("Color found - clicking target")
@@ -445,7 +444,6 @@ ScanAndAct() {
 	if Config.holding && !Config.fallbackActive {
 		Click "Up"
 		Config.holding := false
-		StopLeft()
 		AddDebug("Color lost; returning to fallback pixel (950, 550).")
 	}
 	DllCall("SetCursorPos", "int", Config.fallbackX, "int", Config.fallbackY)
@@ -596,7 +594,6 @@ RecalibrateInner(keys := "") {
 	; First person: stop jiggling/walking and let go of the mouse button before the menu clicks.
 	StopJiggle()
 	StopWalk()
-	StopLeft()
 	if Config.firstPerson && Config.holding
 		Click "Up"
 	SetTimer FallbackClick, 0
@@ -878,31 +875,27 @@ StopWalk() {
 	Send("{" Config.walkKey " up}")
 }
 
-; Hold the left arrow key.
-StartLeft() {
+; First person: every wanderMs, turn the camera a random amount to the left or right,
+; in a few uneven steps so it looks like a random pattern. Skipped while an ore is in
+; view (aiming / jiggling), while recalibrating, or while Roblox isn't the active window.
+WanderTick() {
 	global Config
-	if Config.leftHeld
+	if !Config.running || Config.recalibrating || Config.aiming || Config.jiggling || Config.wandering
 		return
-	Config.leftHeld := true
-	Send("{" Config.leftKey " down}")
-}
-
-; Release the left arrow key. Safe to call even when it isn't held.
-StopLeft() {
-	global Config
-	if !Config.leftHeld
+	if !Config.firstPerson || !WinActive("ahk_exe RobloxPlayerBeta.exe")
 		return
-	Config.leftHeld := false
-	Send("{" Config.leftKey " up}")
-}
-
-; Left arrow follows the mouse hold: held while Config.holding is true, released otherwise.
-SyncLeftKey() {
-	global Config
-	if Config.holding
-		StartLeft()
-	else
-		StopLeft()
+	Config.wandering := true
+	direction := Random(0, 1) ? 1 : -1
+	total := Random(Config.wanderMin, Config.wanderMax)
+	steps := Random(2, 5)
+	Loop steps {
+		step := Round(total / steps * Random(0.6, 1.4)) * direction
+		MoveCamera(step, 0)
+		Sleep Random(20, 80)
+		if !Config.running || Config.recalibrating || Config.aiming || Config.jiggling
+			break
+	}
+	Config.wandering := false
 }
 
 ; Relative mouse movement. With the mouse locked in first person this turns the camera.
@@ -999,11 +992,6 @@ EnsureRoblox() {
 	if Config.walking {
 		Send("{" Config.walkKey " up}")
 		Send("{" Config.walkKey " down}")
-	}
-	; And the left arrow.
-	if Config.leftHeld {
-		Send("{" Config.leftKey " up}")
-		Send("{" Config.leftKey " down}")
 	}
 	return true
 }
