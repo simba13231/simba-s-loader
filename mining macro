@@ -10,7 +10,7 @@ SetDefaultMouseSpeed 1
 
 global Config := {
 	colors: [0xF4DEFF, 0xD179F5, 0xFFFD6E],
-	colorVariation: 1,
+	colorVariation: 2,
 	scanLeft: 375,
 	scanTop: 222,
 	scanRight: 1750,
@@ -55,6 +55,8 @@ global Config := {
 	recalibrating: false,
 	preRecalKeys: ["1", "2"],
 	preRecalKeyDelayMs: 300,
+	postRecalKey: "2",
+	postRecalWaitMs: 6000,
 	greyRecalKeys: ["3"],
 	recalColor: 0x1E2A2D,
 	recalColorVariation: 7,
@@ -626,6 +628,18 @@ RecalibrateInner(keys := "") {
 	if !Config.running
 		return
 	JitterClick(190, 500)
+	; Press the post-recalibration key, then wait before restarting mining and detection.
+	; Config.recalibrating stays true during the wait, so scanning and timers stay paused.
+	AddDebug("Pressing " Config.postRecalKey ", then waiting " Round(Config.postRecalWaitMs / 1000) " s before detection.")
+	UpdateStatus("Waiting after recalibration")
+	PressKey(Config.postRecalKey)
+	waited := 0
+	while waited < Config.postRecalWaitMs {
+		Sleep 250
+		waited += 250
+		if !Config.running
+			return
+	}
 	UpdateStatus(Config.digDownOnly ? "Digging down" : "Scanning")
 	ApplyCycleSetting()
 	Config.cycleStarted := A_TickCount
