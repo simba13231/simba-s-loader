@@ -46,7 +46,7 @@ global Config := {
 	repeatColor: "",
 	repeatX: 0,
 	repeatY: 0,
-	aimRepeatLimit: 4,
+	aimRepeatLimit: 40,
 	aimRepeatRadius: 400,
 	aimRepeatCount: 0,
 	aimRepeatColor: "",
@@ -77,13 +77,15 @@ global Config := {
 	aimOffsetX: 0,
 	aimOffsetY: 0,
 	lookDownCounts: 2500,
-	lookDownAfterMs: 500,
+	lookDownAfterMs: 6000,
 	lookDownPauseMs: 1500,
 	aimPausedUntil: 0,
 	jiggleAmount: 25,
 	jiggleMs: 50,
 	jiggleOffset: 0,
 	jiggling: false,
+	walkKey: "w",
+	walking: false,
 	aiming: false,
 	holdColor: "",
 	holdSince: 0,
@@ -261,6 +263,7 @@ StopMacro(*) {
 	UpdateStatus("Stopped")
 	CountdownText.Text := "Idle"
 	StopJiggle()
+	StopWalk()
 	DigDownCheck.Enabled := true
 	UpdateDigDownState()
 	AddDebug("Macro stopped and mouse released.")
@@ -286,6 +289,7 @@ EmergencyStop(*) {
 	CountdownText.Text := "Idle"
 	UpdateStatus("Stopped")
 	StopJiggle()
+	StopWalk()
 	DigDownCheck.Enabled := true
 	UpdateDigDownState()
 	AddDebug("Emergency stop: timers cancelled and mouse released.")
@@ -397,8 +401,9 @@ ScanAndAct() {
 	Config.repeatCount := 0
 	DetectionText.Text := "No target color found"
 	if Config.firstPerson {
-		; No ore in view: stop jiggling, keep holding the mouse and look back down.
+		; No ore in view: stop jiggling and walking, keep holding the mouse and look back down.
 		StopJiggle()
+		StopWalk()
 		Config.holdColor := ""
 		Config.aimRepeatCount := 0
 		if !Config.lookedDown {
@@ -557,8 +562,9 @@ RecalibrateInner(keys := "") {
 	if !IsObject(keys)
 		keys := Config.preRecalKeys
 	Config.recalibrating := true
-	; First person: stop jiggling and let go of the mouse button before the menu clicks.
+	; First person: stop jiggling/walking and let go of the mouse button before the menu clicks.
 	StopJiggle()
+	StopWalk()
 	if Config.firstPerson && Config.holding
 		Click "Up"
 	SetTimer FallbackClick, 0
@@ -671,6 +677,7 @@ SaveSettings() {
 
 ; First person: steer the camera until the ore sits on the crosshair (screen center).
 ; The mouse button stays held the whole time, so the ore is mined once it lines up.
+; While an ore is in view the walk key (W) is held; it is released when no ore is seen.
 AimAtOre(foundColor, foundX, foundY) {
 	global Config, DetectionText
 	Config.lookedDown := false
@@ -679,11 +686,13 @@ AimAtOre(foundColor, foundX, foundY) {
 	Config.lastColor := foundColor
 	Config.lastPoint := foundX ", " foundY
 	StartJiggle()
+	StartWalk()
 
 	; Same color detected too many times in a row near the same spot: stop trying to
 	; aim and just look down.
 	if TrackAimRepeat(foundColor, foundX, foundY) {
 		AddDebug("Color #" foundColor " detected " Config.aimRepeatLimit " times within " Config.aimRepeatRadius " px of (" Config.aimRepeatX ", " Config.aimRepeatY "); looking down.")
+		StopWalk()
 		LookDown()
 		Config.lookedDown := true
 		Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
@@ -693,6 +702,7 @@ AimAtOre(foundColor, foundX, foundY) {
 
 	; Just looked down on purpose: keep mining downward instead of turning back to the ore.
 	if A_TickCount < Config.aimPausedUntil {
+		StopWalk()
 		UpdateStatus("Mining down")
 		return
 	}
@@ -736,6 +746,7 @@ AimAtOre(foundColor, foundX, foundY) {
 			Config.holdLookedDown := false
 		} else {
 			AddDebug("Color #" foundColor " held for " Config.lookDownAfterMs " ms; looking down.")
+			StopWalk()
 			LookDown()
 			Config.lookedDown := true
 			Config.aimPausedUntil := A_TickCount + Config.lookDownPauseMs
@@ -813,6 +824,24 @@ JiggleTick() {
 		MoveCamera(-Config.jiggleOffset, 0)
 		Config.jiggleOffset := 0
 	}
+}
+
+; Hold the walk key (W) while an ore is in view.
+StartWalk() {
+	global Config
+	if Config.walking
+		return
+	Config.walking := true
+	Send("{" Config.walkKey " down}")
+}
+
+; Release the walk key. Safe to call even when not walking.
+StopWalk() {
+	global Config
+	if !Config.walking
+		return
+	Config.walking := false
+	Send("{" Config.walkKey " up}")
 }
 
 ; Relative mouse movement. With the mouse locked in first person this turns the camera.
@@ -895,6 +924,11 @@ EnsureRoblox() {
 		Click "Up"
 		Sleep 50
 		Click "Down"
+	}
+	; Same for the walk key.
+	if Config.walking {
+		Send("{" Config.walkKey " up}")
+		Send("{" Config.walkKey " down}")
 	}
 	return true
 }
