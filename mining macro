@@ -9,7 +9,7 @@ SetMouseDelay 0
 SetDefaultMouseSpeed 1
 
 global Config := {
-	colors: [0xD179F5, 0xFFFD6E],
+	colors: [0xD179F5, 0xCC4E00, 0xCC00FF],
 	colorVariation: 0,
 	scanLeft: 375,
 	scanTop: 222,
