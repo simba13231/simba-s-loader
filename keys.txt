@@ -1,3 +1,2 @@
-; Simba's Mining Macro — valid key hashes (SHA-256)
 9f5017edb71c8a3c685b3160e5e24617f8dda169d4a43b31b60ac8d6c452e5db
 41a7e87a12b7d06e040d22b353be090ed3cd3c0535ab9b1acecd37fb369578f8
