@@ -8,8 +8,8 @@ CoordMode "Mouse", "Screen"
 
 global Config := {
 	walkKey: "w",
-	indicatorX: 756,
-	indicatorY: 180,
+	indicatorX: 842,
+	indicatorY: 155,
 	greenColor: 0xFFCB00,
 	redColor: 0xFF3728,
 	colorVariation: 20,
