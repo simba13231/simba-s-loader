@@ -7,21 +7,21 @@ CoordMode "Pixel", "Screen"
 CoordMode "Mouse", "Screen"
 
 ; ============================================================
-;  COLOR FIX: the old config had these two values swapped.
-;  greenColor must be the indicator color shown when you
-;  should WALK (green ~0x5AFF78). redColor must be the color
-;  shown when FROZEN (amber/red ~0xFFCB00).
-;  If your game uses slightly different shades, press F8
-;  (probe mode) and read the raw color straight off the GUI,
-;  then paste it below.
+;  CALIBRATED FROM IN-GAME SCREENSHOTS:
+;    WALK indicator   = 0x5AFF78 (green)
+;    FROZEN indicator = 0xFF3728 (red)
+;  colorVariation is the per-channel tolerance (leverage):
+;    50 means each R/G/B channel can drift +-50 and still match.
+;  If the game ever changes shades, press F8 (probe mode) and
+;  read the raw color straight off the GUI, then paste it below.
 ; ============================================================
 global Config := {
         walkKey: "w",
         indicatorX: 842,
         indicatorY: 155,
-        greenColor: 0x5AFF78,   ; WALK indicator (was wrongly amber before)
-        redColor: 0xFFCB00,     ; FROZEN indicator (was wrongly green before)
-        colorVariation: 20,
+        greenColor: 0x5AFF78,   ; WALK indicator (exact, from screenshot)
+        redColor: 0xFF3728,     ; FROZEN indicator (exact red, from screenshot)
+        colorVariation: 50,
         boxSize: 10,         ; half-width of the scan box around the indicator point
         pollMs: 60,
         running: false,
