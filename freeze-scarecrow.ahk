@@ -11,7 +11,7 @@ global Config := {
 	indicatorX: 842,
 	indicatorY: 155,
 	greenColor: 0xFFCB00,
-	redColor: 0xFF3728,
+	redColor: 0x5aff78,
 	colorVariation: 20,
 	boxSize: 10,         ; half-width of the scan box around the indicator point
 	pollMs: 60,
@@ -21,7 +21,7 @@ global Config := {
 }
 
 ; ---------- GUI ----------
-MainGui := Gui("+AlwaysOnTop", "Freeze / Scarecrow Macro")
+MainGui := Gui("+AlwaysOnTop", "Freeze / Scarecrow Macro v2")
 MainGui.SetFont("s10", "Segoe UI")
 MainGui.AddText("w300", "Scan point: " Config.indicatorX ", " Config.indicatorY)
 MainGui.AddText("w300", "Hotkeys: F6 = Start   |   F7 = Stop")
