@@ -8,76 +8,31 @@ CoordMode "Mouse", "Screen"
 
 global Config := {
 	walkKey: "w",
-	greenColor: "",       ; set via calibration
-	redColor: "",         ; set via calibration
+	indicatorX: 756,
+	indicatorY: 180,
+	greenColor: 0xFFCB00,
+	redColor: 0xFF3728,
 	colorVariation: 20,
-	indicatorX: 0,
-	indicatorY: 0,
-	boxSize: 14,           ; half-width of the scan box around the indicator point
+	boxSize: 10,         ; half-width of the scan box around the indicator point
 	pollMs: 60,
 	running: false,
 	walking: false,
 	status: "Stopped"
 }
 
-global SettingsFile := A_ScriptDir "\freeze-macro-settings.ini"
-LoadSettings()
-
 ; ---------- GUI ----------
 MainGui := Gui("+AlwaysOnTop", "Freeze / Scarecrow Macro")
 MainGui.SetFont("s10", "Segoe UI")
-
-MainGui.AddText("w320", "1. Hover your mouse over the status circle (the red/green dot next to `"Freeze!`"/`"Walk to the Scarecrow!`") then press F8 while it's GREEN.")
-MainGui.AddText("w320", "2. Do the same while it's RED (press F8 again).")
-global CalibText := MainGui.AddText("w320 vCalibText cGray", GetCalibText())
-
-MainGui.AddText("w320 y+10", "Hotkeys: F6 = Start, F7 = Stop, F8 = Calibrate (alternates green/red)")
-StatusText := MainGui.AddText("w320 vStatusText", "Status: Stopped")
+MainGui.AddText("w300", "Scan point: " Config.indicatorX ", " Config.indicatorY)
+MainGui.AddText("w300", "Hotkeys: F6 = Start   |   F7 = Stop")
+global StatusText := MainGui.AddText("w300", "Status: Stopped")
 MainGui.Show()
 
 F6::StartMacro()
 F7::StopMacro()
-F8::Calibrate()
-
-GetCalibText() {
-	global Config
-	g := Config.greenColor = "" ? "not set" : Config.greenColor
-	r := Config.redColor = "" ? "not set" : Config.redColor
-	return "Green: " g "   |   Red: " r "   |   Point: " Config.indicatorX "," Config.indicatorY
-}
-
-Calibrate() {
-	global Config, CalibText
-	MouseGetPos(&mx, &my)
-	c := PixelGetColor(mx, my, "RGB")
-
-	if (Config.greenColor = "") {
-		Config.greenColor := c
-		Config.indicatorX := mx
-		Config.indicatorY := my
-		SetStatus("Calibrated GREEN at " mx "," my ". Now hover + F8 on RED.")
-	} else if (Config.redColor = "") {
-		Config.redColor := c
-		SetStatus("Calibrated RED. Ready — press F6 to start.")
-		SaveSettings()
-	} else {
-		; re-calibrate from scratch
-		Config.greenColor := c
-		Config.redColor := ""
-		Config.indicatorX := mx
-		Config.indicatorY := my
-		SetStatus("Re-calibrating. GREEN set, now hover + F8 on RED.")
-	}
-
-	CalibText.Text := GetCalibText()
-}
 
 StartMacro() {
 	global Config
-	if (Config.greenColor = "" || Config.redColor = "") {
-		SetStatus("Calibrate first (F8 on green, then F8 on red).")
-		return
-	}
 	if Config.running
 		return
 	Config.running := true
@@ -147,22 +102,4 @@ SetStatus(msg) {
 	global Config, StatusText
 	Config.status := msg
 	try StatusText.Text := "Status: " msg
-}
-
-SaveSettings() {
-	global Config, SettingsFile
-	IniWrite(Config.greenColor, SettingsFile, "Calib", "Green")
-	IniWrite(Config.redColor, SettingsFile, "Calib", "Red")
-	IniWrite(Config.indicatorX, SettingsFile, "Calib", "X")
-	IniWrite(Config.indicatorY, SettingsFile, "Calib", "Y")
-}
-
-LoadSettings() {
-	global Config, SettingsFile
-	if !FileExist(SettingsFile)
-		return
-	Config.greenColor := IniRead(SettingsFile, "Calib", "Green", "")
-	Config.redColor := IniRead(SettingsFile, "Calib", "Red", "")
-	Config.indicatorX := IniRead(SettingsFile, "Calib", "X", "0")
-	Config.indicatorY := IniRead(SettingsFile, "Calib", "Y", "0")
 }
