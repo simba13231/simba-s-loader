@@ -1,0 +1,10 @@
+# never commit secrets
+.env
+*.env
+.env.*
+
+# local junk
+*.log
+Thumbs.db
+Desktop.ini
+__pycache__/
