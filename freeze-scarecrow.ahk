@@ -9,25 +9,30 @@ SendMode "Input"
 SetKeyDelay -1, -1
 
 ; ============================================================
-;  Freeze / Scarecrow Macro v2.3 (center-pixel edition)
+;  Freeze / Scarecrow Macro v2.4
 ;
-;  CALIBRATED FROM IN-GAME SCREENSHOTS + F8 PROBE:
+;  CALIBRATED FROM IN-GAME SCREENSHOTS:
 ;    WALK indicator   = 0x5AFF78 (green)
-;    FROZEN indicator = 0xFF3728 (red)
+;    FROZEN indicator = 0xFF3728 (red, separate UI element
+;                     that can sit at a different screen spot)
 ;
-;  WHY v2.3: the probe proved the scan point reads EXACT
-;  0x5AFF78, but the 21px box also caught red UI elements
-;  sitting near the indicator -> "both colors found" -> the
-;  old logic stalled. v2.3 reads the CENTER PIXEL first:
-;     center ~= green  -> walk
-;     center ~= red    -> freeze
-;  and only falls back to a tiny +-6px box scan when the
-;  center is mid-transition. Green has priority.
+;  v2.4 logic (region scan + green priority):
+;    - scan the region around the scan point for GREEN first;
+;      if green is visible ANYWHERE in region -> hold W
+;    - else if RED is visible anywhere in region -> release W
+;    - else keep current state
+;    (green priority kills the "red UI next to green" problem;
+;     region scan catches red even at a different spot)
 ;
-;  Heartbeat: while green, W is re-affirmed every 800ms so
-;  games that eat synthetic holds keep walking.
+;  v2.4 hardening:
+;    - startup validation: every numeric Config key is checked;
+;      a broken value names the exact key instead of crashing
+;      mid-loop with "Expected a Number but got an empty string"
+;    - all region math goes through RegionBox() - no inline
+;      arithmetic anywhere else
+;    - heartbeat re-affirms W every 800ms while walking
 ;
-;  F8 = probe (center raw + region search)   F9 = auto-recal
+;  F6 start | F7 stop | F8 probe | F9 auto-recal
 ;  If input does nothing in-game: run as administrator and
 ;  prefer borderless/windowed over exclusive fullscreen.
 ; ============================================================
@@ -35,14 +40,13 @@ global Config := {
         walkKey: "w",
         indicatorX: 842,
         indicatorY: 155,
-        greenColor: 0x5AFF78,   ; WALK indicator (exact, from screenshot)
-        redColor: 0xFF3728,     ; FROZEN indicator (exact red, from screenshot)
-        colorVariation: 50,     ; max per-channel drift that still counts
-        fallbackBox: 6,         ; half-size of the tiny fallback scan box
-        regionRx: 120,          ; probe/recal search half-width
-        regionRy: 70,           ; probe/recal search half-height
+        greenColor: 0x5AFF78,
+        redColor: 0xFF3728,
+        colorVariation: 50,
+        regionRx: 120,
+        regionRy: 70,
         pollMs: 60,
-        refreshMs: 800,         ; heartbeat interval while walking
+        refreshMs: 800,
         running: false,
         walking: false,
         probing: false,
@@ -50,12 +54,29 @@ global Config := {
         status: "Stopped"
 }
 
+; ---------- startup validation ----------
+ValidateConfig() {
+        global Config
+        numericKeys := ["indicatorX", "indicatorY", "greenColor", "redColor",
+                "colorVariation", "regionRx", "regionRy", "pollMs", "refreshMs"]
+        for _, key in numericKeys {
+                v := Config.%key%
+                if !IsNumber(v) {
+                        shown := (v = "") ? "EMPTY STRING" : ("[" v "] of type " Type(v))
+                        MsgBox("Config key '" key "' is invalid: " shown
+                                . "`n`nFix the value in the config block.", "Simba Macro - bad config", "Icon!")
+                        ExitApp()
+                }
+        }
+}
+ValidateConfig()
+
 ; ---------- GUI ----------
-MainGui := Gui("+AlwaysOnTop", "Freeze / Scarecrow Macro v2.3")
+MainGui := Gui("+AlwaysOnTop", "Freeze / Scarecrow Macro v2.4")
 MainGui.SetFont("s10", "Segoe UI")
-MainGui.AddText("w360", "Scan point: " Config.indicatorX ", " Config.indicatorY " (center pixel)")
-MainGui.AddText("w360", "F6 = Start   F7 = Stop   F8 = Probe   F9 = Auto-recal")
-global StatusText := MainGui.AddText("w360", "Status: Stopped")
+MainGui.AddText("w380", "Scan point: " Config.indicatorX ", " Config.indicatorY "  region +" Config.regionRx "x" Config.regionRy)
+MainGui.AddText("w380", "F6 = Start   F7 = Stop   F8 = Probe   F9 = Auto-recal")
+global StatusText := MainGui.AddText("w380", "Status: Stopped")
 MainGui.Show()
 
 F6::StartMacro()
@@ -80,49 +101,32 @@ StopMacro() {
         SetStatus("Stopped")
 }
 
+; ---------- single source of region math ----------
+RegionBox(&left, &top, &right, &bottom) {
+        global Config
+        left := Integer(Config.indicatorX) - Integer(Config.regionRx)
+        top := Integer(Config.indicatorY) - Integer(Config.regionRy)
+        right := Integer(Config.indicatorX) + Integer(Config.regionRx)
+        bottom := Integer(Config.indicatorY) + Integer(Config.regionRy)
+}
+
 ; ---------- core decision loop ----------
 WatchLoop() {
         global Config
         if !Config.running
                 return
 
-        ; 1) center pixel decides
-        raw := 0
-        ok := true
-        try
-                raw := Integer(PixelGetColor(Config.indicatorX, Config.indicatorY))
-        catch
-                ok := false
-        if ok {
-                if (ColorDistance2(raw, Config.greenColor) <= Config.colorVariation) {
-                        HoldWalk(Config.indicatorX, Config.indicatorY)
-                        return
-                }
-                if (ColorDistance2(raw, Config.redColor) <= Config.colorVariation) {
-                        ReleaseWalk(Config.indicatorX, Config.indicatorY)
-                        return
-                }
-        }
-
-        ; 2) fallback: tiny box scan for mid-transition pixels
-        fb := Config.fallbackBox
-        left := Config.indicatorX - fb, top := Config.indicatorY - fb
-        right := Config.indicatorX + fb, bottom := Config.indicatorY + fb
-        g := FindColor(&gx, &gy, left, top, right, bottom, Config.greenColor, Config.colorVariation)
-        r := FindColor(&rx, &ry, left, top, right, bottom, Config.redColor, Config.colorVariation)
-        if g {
+        RegionBox(&left, &top, &right, &bottom)
+        ; GREEN has priority - if the walk indicator is visible at all, walk
+        if FindColor(&gx, &gy, left, top, right, bottom, Config.greenColor, Config.colorVariation) {
                 HoldWalk(gx, gy)
-        } else if r {
+                return
+        }
+        ; no green anywhere -> red means frozen
+        if FindColor(&rx, &ry, left, top, right, bottom, Config.redColor, Config.colorVariation) {
                 ReleaseWalk(rx, ry)
         }
-        ; else: genuinely mid-transition -> keep current state
-}
-
-ColorDistance2(c, target) {
-        dr := Abs(((c >> 16) & 0xFF) - ((target >> 16) & 0xFF))
-        dg := Abs(((c >> 8) & 0xFF) - ((target >> 8) & 0xFF))
-        db := Abs((c & 0xFF) - (target & 0xFF))
-        return Max(dr, dg, db)
+        ; neither visible -> mid-transition, keep current state
 }
 
 FindColor(&fx, &fy, left, top, right, bottom, color, variation) {
@@ -144,7 +148,7 @@ HoldWalk(x := 0, y := 0) {
                 SetStatus("Walking (green) @ " x "," y)
         } else if (now - Config.lastRefresh >= Config.refreshMs) {
                 Config.lastRefresh := now
-                Send("{" Config.walkKey " down}")     ; heartbeat re-affirm
+                Send("{" Config.walkKey " down}")
                 SetStatus("Walking (green) @ " x "," y " [hb]")
         }
 }
@@ -177,23 +181,19 @@ ToggleProbe() {
 ProbeLoop() {
         global Config
         raw := ""
-        try raw := PixelGetColor(Config.indicatorX, Config.indicatorY)
-        g := FindColor(&gx, &gy, Config.indicatorX - Config.regionRx, Config.indicatorY - Config.regionRy,
-                Config.indicatorX + Config.regionRx, Config.indicatorY + Config.regionRy,
-                Config.greenColor, Config.colorVariation)
-        r := FindColor(&rx, &ry, Config.indicatorX - Config.regionRx, Config.indicatorY - Config.regionRy,
-                Config.indicatorX + Config.regionRx, Config.indicatorY + Config.regionRy,
-                Config.redColor, Config.colorVariation)
-        gTxt := g ? "GREEN @ " gx "," gy : "green: none"
-        rTxt := r ? "RED @ " rx "," ry : "red: none"
-        SetStatus("PROBE center:" (raw = "" ? "?" : raw) "  |  " gTxt "  |  " rTxt)
+        try raw := PixelGetColor(Integer(Config.indicatorX), Integer(Config.indicatorY))
+        RegionBox(&left, &top, &right, &bottom)
+        g := FindColor(&gx, &gy, left, top, right, bottom, Config.greenColor, Config.colorVariation)
+        r := FindColor(&rx, &ry, left, top, right, bottom, Config.redColor, Config.colorVariation)
+        gTxt := g ? "GREEN @ " gx "," gy : "green: none in region"
+        rTxt := r ? "RED @ " rx "," ry : "red: none in region"
+        SetStatus("PROBE center:" (raw = "" ? "?" : raw) " | " gTxt " | " rTxt)
 }
 
 ; ---------- F9 auto-recalibrate ----------
 AutoRecal() {
         global Config
-        left := Config.indicatorX - Config.regionRx, top := Config.indicatorY - Config.regionRy
-        right := Config.indicatorX + Config.regionRx, bottom := Config.indicatorY + Config.regionRy
+        RegionBox(&left, &top, &right, &bottom)
         if FindColor(&gx, &gy, left, top, right, bottom, Config.greenColor, Config.colorVariation) {
                 Config.indicatorX := gx
                 Config.indicatorY := gy
