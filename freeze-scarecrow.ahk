@@ -29,7 +29,7 @@ MainGui.SetFont("s10", "Segoe UI")
 
 MainGui.AddText("w320", "1. Hover your mouse over the status circle (the red/green dot next to `"Freeze!`"/`"Walk to the Scarecrow!`") then press F8 while it's GREEN.")
 MainGui.AddText("w320", "2. Do the same while it's RED (press F8 again).")
-MainGui.AddText("w320 vCalibText cGray", GetCalibText())
+global CalibText := MainGui.AddText("w320 vCalibText cGray", GetCalibText())
 
 MainGui.AddText("w320 y+10", "Hotkeys: F6 = Start, F7 = Stop, F8 = Calibrate (alternates green/red)")
 StatusText := MainGui.AddText("w320 vStatusText", "Status: Stopped")
